@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cadê o Professor?</title>
+  <meta name="description" content="Sistema de localização de professores via QR Code" />
+  <meta name="theme-color" content="#1a73e8" />
+  <link rel="manifest" href="data:application/json,{}" />
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+  <style>
+    :root {
+      --bg: #f0f4ff;
+      --card: #ffffff;
+      --text: #1e1e2e;
+      --sub: #6b7280;
+      --primary: #1a73e8;
+      --success: #22c55e;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+      --border: #e2e8f0;
+      --radius: 12px;
+    }
+    [data-theme="dark"] {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --text: #f1f5f9;
+      --sub: #94a3b8;
+      --border: #334155;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    header {
+      background: var(--primary);
+      color: #fff;
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    header h1 { font-size: 1.2rem; }
+    header span { font-size: 0.75rem; opacity: 0.8; }
+    .theme-btn {
+      background: rgba(255,255,255,0.2);
+      border: none;
+      color: #fff;
+      border-radius: 8px;
+      padding: 6px 12px;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    nav {
+      display: flex;
+      overflow-x: auto;
+      background: var(--card);
+      border-bottom: 2px solid var(--border);
+      position: sticky;
+      top: 57px;
+      z-index: 99;
+    }
+    nav button {
+      flex: 1;
+      min-width: 80px;
+      padding: 12px 8px;
+      border: none;
+      background: none;
+      color: var(--sub);
+      cursor: pointer;
+      font-size: 0.8rem;
+      font-weight: 500;
+      border-bottom: 3px solid transparent;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+    nav button.active {
+      color: var(--primary);
+      border-bottom-color: var(--primary);
+      background: rgba(26,115,232,0.06);
+    }
+    .page { display: none; padding: 16px; max-width: 700px; margin: 0 auto; }
+    .page.active { display: block; }
+    .card {
+      background: var(--card);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 14px;
+      border: 1px solid var(--border);
+      box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .stat-card {
+      background: var(--card);
+      border-radius: var(--radius);
+      padding: 14px;
+      text-align: center;
+      border: 1px solid var(--border);
+    }
+    .stat-card .num { font-size: 2rem; font-weight: 700; color: var(--primary); }
+    .stat-card .label { font-size: 0.72rem; color: var(--sub); margin-top: 2px; }
+    .professor-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .professor-item:last-child { border-bottom: none; }
+    .avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 0.9rem;
+      color: #fff;
+      flex-shrink: 0;
+    }
+    .prof-info { flex: 1; }
+    .prof-info strong { display: block; font-size: 0.95rem; }
+    .prof-info span { font-size: 0.78rem; color: var(--sub); }
+    .badge {
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 0.72rem;
+      font-weight: 600;
+    }
+    .badge-green { background: #dcfce7; color: #16a34a; }
+    .badge-gray  { background: #f1f5f9; color: var(--sub); }
+    .badge-blue  { background: #dbeafe; color: var(--primary); }
+    [data-theme="dark"] .badge-green { background: #14532d; color: #86efac; }
+    [data-theme="dark"] .badge-gray  { background: #334155; color: #94a3b8; }
+    [data-theme="dark"] .badge-blue  { background: #1e3a5f; color: #93c5fd; }
+    h2 { font-size: 1.1rem; margin-bottom: 12px; }
+    h3 { font-size: 0.95rem; margin-bottom: 10px; color: var(--sub); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+    input, select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 0.9rem;
+      background: var(--bg);
+      color: var(--text);
+      margin-bottom: 10px;
+    }
+    input:focus, select:focus { outline: 2px solid var(--primary); border-color: transparent; }
+    button.btn {
+      padding: 10px 18px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      font-size: 0.88rem;
+      font-weight: 600;
+      transition: all 0.15s;
+    }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover { filter: brightness(1.1); }
+    .btn-success { background: var(--success); color: #fff; }
+    .btn-danger  { background: var(--danger);  color: #fff; font-size: 0.75rem; padding: 6px 12px; }
+    .btn-outline { background: none; border: 1px solid var(--border); color: var(--text); }
+    .btn-outline:hover { background: var(--border); }
+    .btn-full { width: 100%; }
+    .btn-sm { padding: 6px 10px; font-size: 0.75rem; }
+    #camera-box {
+      width: 100%;
+      border-radius: 10px;
+      overflow: hidden;
+      background: #000;
+      margin-bottom: 12px;
+      display: none;
+    }
+    #video { width: 100%; display: block; }
+    #scan-result {
+      text-align: center;
+      padding: 12px;
+      border-radius: 10px;
+      margin-top: 10px;
+      display: none;
+    }
+    .sala-card {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .sala-card:last-child { border-bottom: none; }
+    .sala-info strong { display: block; font-size: 0.92rem; }
+    .sala-info span { font-size: 0.78rem; color: var(--sub); }
+    .qr-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 12px;
+    }
+    .qr-item {
+      text-align: center;
+      background: var(--card);
+      border-radius: var(--radius);
+      padding: 12px;
+      border: 1px solid var(--border);
+    }
+    .qr-item p { font-size: 0.8rem; font-weight: 600; margin: 8px 0 6px; color: var(--text); }
+    .qr-item canvas { border-radius: 6px; }
+    .actions { display: flex; gap: 8px; margin-top: 8px; }
+    .clear-btn {
+      background: #fee2e2;
+      color: var(--danger);
+      border: none;
+      border-radius: 8px;
+      padding: 8px 14px;
+      cursor: pointer;
+      font-size: 0.82rem;
+      font-weight: 600;
+    }
+    [data-theme="dark"] .clear-btn { background: #450a0a; }
+    @media print {
+      header, nav, .no-print { display: none !important; }
+      .qr-grid { grid-template-columns: repeat(4, 1fr); }
+      .qr-item { break-inside: avoid; }
+    }
+    .empty-state {
+      text-align: center;
+      padding: 32px 16px;
+      color: var(--sub);
+      font-size: 0.9rem;
+    }
+    .empty-state .icon { font-size: 2.5rem; margin-bottom: 10px; }
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1e293b;
+      color: #fff;
+      padding: 10px 20px;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      z-index: 999;
+      opacity: 0;
+      transition: opacity 0.3s;
+      pointer-events: none;
+    }
+    .toast.show { opacity: 1; }
+    .divider { height: 1px; background: var(--border); margin: 12px 0; }
+  </style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>📍 Cadê o Professor?</h1>
+    <span>Escola Estadual Joaquim Diégues — Viçosa, AL</span>
+  </div>
+  <button class="theme-btn" onclick="toggleTheme()">🌙 Tema</button>
+</header>
+
+<nav>
+  <button class="active" onclick="goTo('painel',this)">🏠 Painel</button>
+  <button onclick="goTo('scanner',this)">📷 Escanear</button>
+  <button onclick="goTo('professores',this)">👩‍🏫 Professores</button>
+  <button onclick="goTo('salas',this)">🚪 Salas</button>
+  <button onclick="goTo('qrcodes',this)">🔲 QR Codes</button>
+</nav>
+
+<!-- PAINEL -->
+<div id="painel" class="page active">
+  <div class="stats">
+    <div class="stat-card"><div class="num" id="total-prof">0</div><div class="label">Professores</div></div>
+    <div class="stat-card"><div class="num" id="em-sala">0</div><div class="label">Em sala</div></div>
+    <div class="stat-card"><div class="num" id="sem-sala">0</div><div class="label">Sem sala</div></div>
+  </div>
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <h2>📍 Localização dos Professores</h2>
+      <button class="clear-btn no-print" onclick="limparAlocacoes()">🗑 Limpar</button>
+    </div>
+    <div id="lista-painel"></div>
+  </div>
+</div>
+
+<!-- SCANNER -->
+<div id="scanner" class="page">
+  <div class="card">
+    <h2>📷 Escanear QR Code da Sala</h2>
+    <p style="font-size:0.85rem;color:var(--sub);margin-bottom:14px">Selecione seu nome, depois escaneie o QR Code fixado na porta da sala.</p>
+    <select id="sel-prof">
+      <option value="">— Selecione seu nome —</option>
+    </select>
+    <button class="btn btn-primary btn-full" id="start-cam" onclick="toggleCamera()">📷 Iniciar câmera</button>
+    <div id="camera-box"><video id="video" autoplay playsinline></video></div>
+    <canvas id="canvas" style="display:none"></canvas>
+    <div id="scan-result"></div>
+  </div>
+  <div class="card">
+    <h3>Alocação Manual (sem câmera)</h3>
+    <select id="sel-sala-manual">
+      <option value="">— Selecione a sala —</option>
+    </select>
+    <button class="btn btn-success btn-full" onclick="alocarManual()">✅ Confirmar alocação</button>
+  </div>
+</div>
+
+<!-- PROFESSORES -->
+<div id="professores" class="page">
+  <div class="card">
+    <h2>➕ Cadastrar Professor</h2>
+    <input id="nome-prof" type="text" placeholder="Nome completo" />
+    <input id="disc-prof" type="text" placeholder="Disciplina(s)" />
+    <button class="btn btn-primary btn-full" onclick="addProfessor()">Cadastrar</button>
+  </div>
+  <div class="card">
+    <h2>👩‍🏫 Professores Cadastrados</h2>
+    <div id="lista-professores"></div>
+  </div>
+</div>
+
+<!-- SALAS -->
+<div id="salas" class="page">
+  <div class="card">
+    <h2>➕ Adicionar Sala</h2>
+    <input id="nome-sala" type="text" placeholder="Nome ou número da sala" />
+    <button class="btn btn-primary btn-full" onclick="addSala()">Adicionar</button>
+  </div>
+  <div class="card">
+    <h2>🚪 Salas Cadastradas</h2>
+    <div id="lista-salas"></div>
+  </div>
+</div>
+
+<!-- QR CODES -->
+<div id="qrcodes" class="page">
+  <div class="card no-print">
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn btn-primary" onclick="window.print()">🖨 Imprimir todos</button>
+    </div>
+    <p style="font-size:0.78rem;color:var(--sub);margin-top:8px">Imprima os QR Codes e cole nas portas das salas.</p>
+  </div>
+  <div class="qr-grid" id="qr-grid"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let state = {
+  professores: [],
+  salas: [],
+  alocacoes: {}
+};
+
+const COLORS = ['#1a73e8','#0f9d58','#e53935','#f57c00','#8e24aa','#00838f','#c62828','#558b2f','#283593','#6a1b9a'];
+
+function save() { localStorage.setItem('cadeprofessor', JSON.stringify(state)); }
+function load() {
+  const d = localStorage.getItem('cadeprofessor');
+  if (d) state = JSON.parse(d);
+  if (!state.salas || state.salas.length === 0) {
+    state.salas = Array.from({length:13}, (_,i) => ({ id: 'sala-'+(i+1), nome: 'Sala '+(i+1).toString().padStart(2,'0') }));
+    save();
+  }
+}
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+function initials(name) { return name.split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase(); }
+function color(i)        { return COLORS[i % COLORS.length]; }
+
+function goTo(id, btn) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  btn.classList.add('active');
+  stopCamera();
+  if (id === 'painel')      renderPainel();
+  if (id === 'scanner')     renderScanner();
+  if (id === 'professores') renderProfessores();
+  if (id === 'salas')       renderSalas();
+  if (id === 'qrcodes')     renderQRCodes();
+}
+
+function toggleTheme() {
+  const d = document.documentElement;
+  d.dataset.theme = d.dataset.theme === 'dark' ? '' : 'dark';
+}
+
+// PAINEL
+function renderPainel() {
+  const total = state.professores.length;
+  const alocados = Object.keys(state.alocacoes).length;
+  document.getElementById('total-prof').textContent = total;
+  document.getElementById('em-sala').textContent = alocados;
+  document.getElementById('sem-sala').textContent = total - alocados;
+
+  const el = document.getElementById('lista-painel');
+  if (!total) { el.innerHTML = '<div class="empty-state"><div class="icon">👩‍🏫</div>Nenhum professor cadastrado.<br>Vá até "Professores" para adicionar.</div>'; return; }
+
+  el.innerHTML = state.professores.map((p,i) => {
+    const sala = state.alocacoes[p.id];
+    const salaNome = sala ? (state.salas.find(s=>s.id===sala)||{nome:'Sala'}).nome : null;
+    return \`<div class="professor-item">
+      <div class="avatar" style="background:\${color(i)}">\${initials(p.nome)}</div>
+      <div class="prof-info"><strong>\${p.nome}</strong><span>\${p.disciplina}</span></div>
+      \${salaNome
+        ? \`<span class="badge badge-green">✅ \${salaNome}</span>\`
+        : \`<span class="badge badge-gray">⏳ Não alocado</span>\`}
+    </div>\`;
+  }).join('');
+}
+
+function limparAlocacoes() {
+  if (!confirm('Limpar todas as alocações?')) return;
+  state.alocacoes = {};
+  save();
+  renderPainel();
+  toast('Alocações limpas.');
+}
+
+// SCANNER
+let stream = null, scanInterval = null;
+
+function renderScanner() {
+  const sel = document.getElementById('sel-prof');
+  sel.innerHTML = '<option value="">— Selecione seu nome —</option>' +
+    state.professores.map(p=>\`<option value="\${p.id}">\${p.nome}</option>\`).join('');
+  const selSala = document.getElementById('sel-sala-manual');
+  selSala.innerHTML = '<option value="">— Selecione a sala —</option>' +
+    state.salas.map(s=>\`<option value="\${s.id}">\${s.nome}</option>\`).join('');
+}
+
+function toggleCamera() {
+  if (stream) { stopCamera(); return; }
+  const box = document.getElementById('camera-box');
+  const video = document.getElementById('video');
+  const btn   = document.getElementById('start-cam');
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+    .then(s => {
+      stream = s;
+      video.srcObject = s;
+      box.style.display = 'block';
+      btn.textContent = '⏹ Parar câmera';
+      scanInterval = setInterval(scanFrame, 400);
+    })
+    .catch(() => toast('Câmera não disponível. Use alocação manual.'));
+}
+
+function stopCamera() {
+  if (stream) { stream.getTracks().forEach(t=>t.stop()); stream = null; }
+  if (scanInterval) { clearInterval(scanInterval); scanInterval = null; }
+  document.getElementById('camera-box').style.display = 'none';
+  document.getElementById('start-cam').textContent = '📷 Iniciar câmera';
+}
+
+function scanFrame() {
+  const video  = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  if (video.readyState !== video.HAVE_ENOUGH_DATA) return;
+  canvas.width  = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0);
+  const img  = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const code = jsQR(img.data, img.width, img.height);
+  if (code) { handleQR(code.data); stopCamera(); }
+}
+
+function handleQR(data) {
+  const profId = document.getElementById('sel-prof').value;
+  if (!profId) { toast('Selecione seu nome primeiro!'); return; }
+  const sala = state.salas.find(s => s.id === data);
+  if (!sala)  { toast('QR Code não reconhecido.'); return; }
+  state.alocacoes[profId] = sala.id;
+  save();
+  const prof = state.professores.find(p=>p.id===profId);
+  const el = document.getElementById('scan-result');
+  el.style.display = 'block';
+  el.style.background = '#dcfce7';
+  el.style.color = '#166534';
+  el.innerHTML = \`✅ <strong>\${prof.nome}</strong> alocado em <strong>\${sala.nome}</strong>!\`;
+  toast(\`\${prof.nome} → \${sala.nome}\`);
+}
+
+function alocarManual() {
+  const profId = document.getElementById('sel-prof').value;
+  const salaId = document.getElementById('sel-sala-manual').value;
+  if (!profId || !salaId) { toast('Selecione professor e sala!'); return; }
+  state.alocacoes[profId] = salaId;
+  save();
+  const prof = state.professores.find(p=>p.id===profId);
+  const sala = state.salas.find(s=>s.id===salaId);
+  toast(\`\${prof.nome} → \${sala.nome}\`);
+}
+
+// PROFESSORES
+function addProfessor() {
+  const nome = document.getElementById('nome-prof').value.trim();
+  const disc = document.getElementById('disc-prof').value.trim();
+  if (!nome) { toast('Informe o nome!'); return; }
+  state.professores.push({ id: 'prof-' + Date.now(), nome, disciplina: disc || 'Não informada' });
+  save();
+  document.getElementById('nome-prof').value = '';
+  document.getElementById('disc-prof').value = '';
+  renderProfessores();
+  toast('Professor cadastrado!');
+}
+
+function renderProfessores() {
+  const el = document.getElementById('lista-professores');
+  if (!state.professores.length) { el.innerHTML = '<div class="empty-state"><div class="icon">👩‍🏫</div>Nenhum professor cadastrado.</div>'; return; }
+  el.innerHTML = state.professores.map((p,i) => {
+    const sala = state.alocacoes[p.id];
+    const salaNome = sala ? (state.salas.find(s=>s.id===sala)||{nome:'?'}).nome : 'Não alocado';
+    return \`<div class="professor-item">
+      <div class="avatar" style="background:\${color(i)}">\${initials(p.nome)}</div>
+      <div class="prof-info"><strong>\${p.nome}</strong><span>\${p.disciplina} · \${salaNome}</span></div>
+      <div style="display:flex;gap:6px">
+        \${sala ? \`<button class="btn btn-outline btn-sm" onclick="removerDaSala('\${p.id}')">🚪</button>\` : ''}
+        <button class="btn btn-danger" onclick="excluirProfessor('\${p.id}')">🗑</button>
+      </div>
+    </div>\`;
+  }).join('');
+}
+
+function removerDaSala(id) { delete state.alocacoes[id]; save(); renderProfessores(); toast('Professor removido da sala.'); }
+function excluirProfessor(id) {
+  if (!confirm('Excluir professor?')) return;
+  state.professores = state.professores.filter(p=>p.id!==id);
+  delete state.alocacoes[id];
+  save(); renderProfessores(); toast('Professor excluído.');
+}
+
+// SALAS
+function addSala() {
+  const nome = document.getElementById('nome-sala').value.trim();
+  if (!nome) { toast('Informe o nome da sala!'); return; }
+  state.salas.push({ id: 'sala-' + Date.now(), nome });
+  save();
+  document.getElementById('nome-sala').value = '';
+  renderSalas(); toast('Sala adicionada!');
+}
+
+function renderSalas() {
+  const el = document.getElementById('lista-salas');
+  if (!state.salas.length) { el.innerHTML = '<div class="empty-state"><div class="icon">🚪</div>Nenhuma sala cadastrada.</div>'; return; }
+  el.innerHTML = state.salas.map(s => {
+    const profId = Object.keys(state.alocacoes).find(k=>state.alocacoes[k]===s.id);
+    const prof = profId ? state.professores.find(p=>p.id===profId) : null;
+    return \`<div class="sala-card">
+      <div class="sala-info">
+        <strong>🚪 \${s.nome}</strong>
+        <span>\${prof ? '✅ ' + prof.nome : '⏳ Disponível'}</span>
+      </div>
+      <button class="btn btn-danger" onclick="excluirSala('\${s.id}')">🗑</button>
+    </div>\`;
+  }).join('');
+}
+
+function excluirSala(id) {
+  if (!confirm('Excluir sala?')) return;
+  state.salas = state.salas.filter(s=>s.id!==id);
+  Object.keys(state.alocacoes).forEach(k=>{ if(state.alocacoes[k]===id) delete state.alocacoes[k]; });
+  save(); renderSalas(); renderQRCodes(); toast('Sala excluída.');
+}
+
+// QR CODES
+function renderQRCodes() {
+  const grid = document.getElementById('qr-grid');
+  grid.innerHTML = state.salas.map(s => \`
+    <div class="qr-item">
+      <canvas id="qr-\${s.id}"></canvas>
+      <p>\${s.nome}</p>
+      <button class="btn btn-outline btn-sm" onclick="downloadQR('\${s.id}', '\${s.nome}')">⬇ Baixar</button>
+    </div>
+  \`).join('');
+  state.salas.forEach(s => {
+    QRCode.toCanvas(document.getElementById('qr-'+s.id), s.id, { width:140, margin:1 }, ()=>{});
+  });
+}
+
+function downloadQR(id, nome) {
+  const c = document.getElementById('qr-'+id);
+  const a = document.createElement('a');
+  a.download = nome.replace(/\s+/g,'-') + '.png';
+  a.href = c.toDataURL();
+  a.click();
+}
+
+// INIT
+load();
+renderPainel();
+renderSalas();
+renderQRCodes();
+</script>
+</body>
+</html>
