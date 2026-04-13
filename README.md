@@ -80,7 +80,7 @@ O projeto surgiu da necessidade prática de eliminar a comunicação manual sobr
 ### Infraestrutura
 
 - **PWA Ready**: Funciona offline e pode ser instalado como app nativo
-- **Deploy na nuvem**: Hospedagem via Vercel / GitHub Pages
+- **Deploy na nuvem**: Hospedagem via GitHub Pages
 - **HTTPS**: Comunicação segura e necessária para acesso à câmera
 - **Zero dependências de servidor**: Versão atual roda 100% no navegador
 
@@ -98,7 +98,7 @@ cade-o-professor/
 
 ### Acesso Online
 
-O projeto está disponível em: `https://cade-o-professor.vercel.app`
+O projeto está disponível em: `https://alexandrehenriqueventura.github.io/cade-o-professor`
 
 > Qualquer dispositivo com navegador moderno e câmera consegue utilizar o app.
 
