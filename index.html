@@ -17,7 +17,7 @@
     onSnapshot, getDocs, updateDoc, getDoc
   } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore.js";
   import {
-    getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged
+    getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged
   } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-auth.js";
 
   const firebaseConfig = {
@@ -49,11 +49,6 @@
     return snap.exists() && snap.data().ativo === true;
   }
 
-  // Captura resultado do redirect de login
-  getRedirectResult(auth).catch(e => {
-    if (e && e.code !== 'auth/no-current-user') window.showToast && window.showToast('Erro ao fazer login: ' + e.message, 'error');
-  });
-
   onAuthStateChanged(auth, async (user) => {
     if (user) {
       const isAdmin = await checkAdmin(user.email);
@@ -81,7 +76,11 @@
         ${isAdmin ? '<span class="badge-admin">Admin</span>' : '<span class="badge-visitor">Visitante</span>'}`;
     } else {
       btn.textContent = '🔑 Entrar';
-      btn.onclick = () => signInWithRedirect(auth, provider);
+      btn.onclick = () => signInWithPopup(auth, provider).catch(e => {
+        if (e.code !== 'auth/popup-closed-by-user') {
+          window.showToast('Erro ao fazer login: ' + e.message, 'error');
+        }
+      });
       info.innerHTML = '';
     }
   }
