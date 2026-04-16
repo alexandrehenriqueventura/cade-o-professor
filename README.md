@@ -74,15 +74,16 @@ O projeto surgiu da necessidade prática de eliminar a comunicação manual sobr
 - **HTML5**: Estrutura semântica e acessível
 - **CSS3**: Estilos modernos com variáveis CSS, Flexbox e Grid Layout
 - **JavaScript ES6+**: Lógica de interação, scanner e geração de QR Codes
-- **ZXing / Html5QrcodeScanner**: Leitura de QR Code via câmera do dispositivo
+- **Firebase Auth**: Autenticação via Google com redirecionamento OAuth
+- **Firebase Firestore**: Banco de dados em tempo real
+- **Html5QrcodeScanner**: Leitura de QR Code via câmera do dispositivo
 - **QRCode.js**: Geração de QR Codes únicos por sala
 
 ### Infraestrutura
 
-- **PWA Ready**: Funciona offline e pode ser instalado como app nativo
 - **Deploy na nuvem**: Hospedagem via GitHub Pages
 - **HTTPS**: Comunicação segura e necessária para acesso à câmera
-- **Zero dependências de servidor**: Versão atual roda 100% no navegador
+- **Zero dependências de servidor**: Roda 100% no navegador
 
 ## 💻 Estrutura do Projeto
 
@@ -102,73 +103,9 @@ O projeto está disponível em: `https://alexandrehenriqueventura.github.io/cade
 
 > Qualquer dispositivo com navegador moderno e câmera consegue utilizar o app.
 
-### Instalação Local
-
-1. **Clone o repositório**:
-
-```bash
-git clone https://github.com/alexandrehenriqueventura/cade-o-professor.git
-```
-
-2. **Navegue para o diretório**:
-
-```bash
-cd cade-o-professor
-```
-
-3. **Abra o arquivo principal**:
-
-```bash
-# Abra o index.html diretamente no navegador
-# Ou sirva com um servidor local:
-npx serve .
-```
-
-### Gerando e Fixando os QR Codes
-
-1. Acesse o app → Aba **QR Codes**
-2. Cada sala já possui seu QR Code único gerado automaticamente
-3. Clique em **"Baixar PNG"** para salvar individualmente, ou **"Imprimir Todos"** para imprimir de uma vez
-4. Cole os QR Codes nas portas das respectivas salas
-5. Pronto! Os professores já podem escanear ao chegar
-
-## 🔄 Atualizações Futuras
-
-### Planejadas
-
-- 🗄️ Integração com banco de dados (Supabase / PostgreSQL) para persistência real dos dados
-- 🔐 Autenticação de professores com login seguro
-- 📊 Dashboard com histórico de ocupação por sala e turno
-- 📱 PWA completo — instalável como aplicativo nativo no smartphone
-- 📧 Notificações para alunos quando o professor estiver disponível
-- 🗓️ Integração com grade de horários da escola
-- 📄 Relatórios de ocupação de salas exportáveis em PDF
-- 🌐 Suporte a múltiplas unidades escolares
-- 🔔 Alertas de sala sem professor por tempo configurável
-
 ## 📄 Licença
 
 Este projeto não possui uma licença específica definida. É uma ferramenta de gestão educacional desenvolvida para uso institucional.
-
-## 🤝 Contribuições
-
-Contribuições são bem-vindas! Para contribuir:
-
-1. Faça um fork do projeto
-2. Crie uma branch para sua feature (`git checkout -b feature/NovaFuncionalidade`)
-3. Commit suas mudanças (`git commit -m 'feat: adiciona nova funcionalidade'`)
-4. Push para a branch (`git push origin feature/NovaFuncionalidade`)
-5. Abra um Pull Request
-
-### Tipos de Contribuição
-
-- 🐛 Correção de bugs
-- ✨ Novas funcionalidades
-- 📝 Melhoria da documentação
-- 🎨 Melhorias de design
-- ♿ Melhorias de acessibilidade
-- 🔒 Melhorias de segurança
-- ⚡ Otimizações de performance
 
 ## 📞 Contato
 
@@ -181,13 +118,6 @@ Contribuições são bem-vindas! Para contribuir:
 
 - Escola Estadual Joaquim Diégues
 - Viçosa, Alagoas, Brasil
-
-## 🙏 Agradecimentos
-
-- **Escola Estadual Joaquim Diégues**: Pelo apoio institucional e necessidade que inspirou o projeto
-- **Equipe docente**: Pelo feedback durante o desenvolvimento
-- **Alunos**: Por sinalizarem a dificuldade de encontrar os professores nas salas
-- **Comunidade Open Source**: Pelas ferramentas e bibliotecas utilizadas
 
 ---
 
