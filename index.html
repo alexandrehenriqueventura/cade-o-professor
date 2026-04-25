@@ -69,6 +69,36 @@
     return window._state.professors.find(p => p.email && p.email.toLowerCase() === email.toLowerCase()) || null;
   }
 
+  // ── Modal de confirmação genérico ──────────────────────────────────────────
+  function showConfirmModal({ icon = '🗑️', iconType = 'danger', title, body, confirmLabel = 'Confirmar', cancelLabel = 'Cancelar', onConfirm, onCancel }) {
+    const modal = document.getElementById('confirm-modal');
+    const iconEl = document.getElementById('confirm-modal-icon');
+    const titleEl = document.getElementById('confirm-modal-title');
+    const bodyEl = document.getElementById('confirm-modal-body');
+    const btnConfirm = document.getElementById('confirm-modal-ok');
+    const btnCancel = document.getElementById('confirm-modal-cancel');
+
+    iconEl.textContent = icon;
+    iconEl.className = 'modal-icon modal-icon-' + iconType;
+    titleEl.textContent = title;
+    bodyEl.innerHTML = body;
+    btnConfirm.textContent = confirmLabel;
+    btnCancel.textContent = cancelLabel;
+
+    modal.classList.add('open');
+
+    function cleanup() {
+      modal.classList.remove('open');
+      btnConfirm.replaceWith(btnConfirm.cloneNode(true));
+      btnCancel.replaceWith(btnCancel.cloneNode(true));
+    }
+
+    document.getElementById('confirm-modal-ok').addEventListener('click', () => { cleanup(); onConfirm(); }, { once: true });
+    document.getElementById('confirm-modal-cancel').addEventListener('click', () => { cleanup(); if (onCancel) onCancel(); }, { once: true });
+  }
+  window.showConfirmModal = showConfirmModal;
+  // ──────────────────────────────────────────────────────────────────────────
+
   onAuthStateChanged(auth, async (user) => {
     if (user) {
       const isAdmin = await checkAdmin(user.email);
@@ -170,10 +200,10 @@
   function getRoomOfProf(profId) { return window._state.rooms.find(r => r.profId === profId) || null; }
 
   function renderPainel() {
-    const query = (window._state.searchQuery || '').toLowerCase().trim();
+    const q = (window._state.searchQuery || '').toLowerCase().trim();
     const allProfs = window._state.professors;
-    const profs = query
-      ? allProfs.filter(p => p.name.toLowerCase().includes(query) || p.subject.toLowerCase().includes(query))
+    const profs = q
+      ? allProfs.filter(p => p.name.toLowerCase().includes(q) || p.subject.toLowerCase().includes(q))
       : allProfs;
 
     const inRoom = allProfs.filter(p => getRoomOfProf(p.id));
@@ -187,7 +217,7 @@
       return;
     }
     if (!profs.length) {
-      c.innerHTML = `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/></svg><h3>Nenhum resultado</h3><p>Nenhum professor encontrado para "<strong>${query}</strong>"</p></div>`;
+      c.innerHTML = `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/></svg><h3>Nenhum resultado</h3><p>Nenhum professor encontrado para "<strong>${q}</strong>"</p></div>`;
       return;
     }
     c.innerHTML = profs.map(p => {
@@ -366,37 +396,116 @@
     window.showToast('Professor cadastrado!','success');
   };
 
-  window.removeProfessor = async (id) => {
+  // ── Exclusões com confirmação ──────────────────────────────────────────────
+
+  window.removeProfessor = (id) => {
     if (!guardAdmin()) return;
-    const room=window._state.rooms.find(r=>r.profId===id);
-    if (room) await updateDoc(doc(db,'salas',room.id),{profId:null});
-    await deleteDoc(doc(db,'professores',id));
-    window.showToast('Professor removido','info');
+    const prof = window._state.professors.find(p => p.id === id);
+    if (!prof) return;
+    showConfirmModal({
+      icon: '🗑️',
+      iconType: 'danger',
+      title: 'Excluir professor?',
+      body: `Tem certeza que deseja excluir <strong>${prof.name}</strong>? Esta ação não pode ser desfeita.`,
+      confirmLabel: 'Sim, excluir',
+      cancelLabel: 'Cancelar',
+      onConfirm: async () => {
+        const room = window._state.rooms.find(r => r.profId === id);
+        if (room) await updateDoc(doc(db,'salas',room.id),{profId:null});
+        await deleteDoc(doc(db,'professores',id));
+        window.showToast('Professor removido','info');
+      }
+    });
   };
 
-  window.deallocateProf = async (profId) => {
+  window.deallocateProf = (profId) => {
     if (!guardAdmin()) return;
-    const room=window._state.rooms.find(r=>r.profId===profId);
-    if (room) {
-      const prof = window._state.professors.find(p=>p.id===profId);
-      await updateDoc(doc(db,'salas',room.id),{profId:null});
-      await updateDoc(doc(db,'professores',profId),{updatedAt:serverTimestamp()});
-      await logMovimento({ profId, profNome: prof?.name||'?', salaId: room.id, salaNome: room.name, acao: 'saida' });
-      window.showToast('Professor saiu da sala','info');
-    }
+    const prof = window._state.professors.find(p => p.id === profId);
+    const room = window._state.rooms.find(r => r.profId === profId);
+    if (!room) { window.showToast('Professor não está em nenhuma sala','info'); return; }
+    showConfirmModal({
+      icon: '🚪',
+      iconType: 'warn',
+      title: 'Retirar da sala?',
+      body: `Deseja retirar <strong>${prof?.name}</strong> de <strong>${room.name}</strong>?`,
+      confirmLabel: 'Sim, retirar',
+      cancelLabel: 'Cancelar',
+      onConfirm: async () => {
+        await updateDoc(doc(db,'salas',room.id),{profId:null});
+        await updateDoc(doc(db,'professores',profId),{updatedAt:serverTimestamp()});
+        await logMovimento({ profId, profNome: prof?.name||'?', salaId: room.id, salaNome: room.name, acao: 'saida' });
+        window.showToast('Professor saiu da sala','info');
+      }
+    });
   };
 
-  window.selfDeallocate = async () => {
+  window.selfDeallocate = () => {
     const prof = window._state.currentProf;
     if (!prof) return;
     if (!window._state.user) { window.showToast('Faça login para continuar', 'error'); return; }
     const room = window._state.rooms.find(r => r.profId === prof.id);
     if (!room) { window.showToast('Você não está em nenhuma sala','info'); return; }
-    await updateDoc(doc(db,'salas',room.id),{profId:null});
-    await updateDoc(doc(db,'professores',prof.id),{updatedAt:serverTimestamp()});
-    await logMovimento({ profId: prof.id, profNome: prof.name, salaId: room.id, salaNome: room.name, acao: 'saida' });
-    window.showToast(`Você saiu de ${room.name}`,'info');
+    showConfirmModal({
+      icon: '🚪',
+      iconType: 'warn',
+      title: 'Sair da sala?',
+      body: `Deseja sair de <strong>${room.name}</strong>?`,
+      confirmLabel: 'Sim, sair',
+      cancelLabel: 'Cancelar',
+      onConfirm: async () => {
+        await updateDoc(doc(db,'salas',room.id),{profId:null});
+        await updateDoc(doc(db,'professores',prof.id),{updatedAt:serverTimestamp()});
+        await logMovimento({ profId: prof.id, profNome: prof.name, salaId: room.id, salaNome: room.name, acao: 'saida' });
+        window.showToast(`Você saiu de ${room.name}`,'info');
+      }
+    });
   };
+
+  window.deleteRoom = (id) => {
+    if (!guardAdmin()) return;
+    const room = window._state.rooms.find(r => r.id === id);
+    if (!room) return;
+    const ocupada = window._state.professors.find(p => p.id === room.profId);
+    showConfirmModal({
+      icon: '🏫',
+      iconType: 'danger',
+      title: 'Excluir sala?',
+      body: ocupada
+        ? `<strong>${room.name}</strong> está ocupada por <strong>${ocupada.name}</strong>. Excluir também removerá a alocação. Esta ação não pode ser desfeita.`
+        : `Tem certeza que deseja excluir <strong>${room.name}</strong>? Esta ação não pode ser desfeita.`,
+      confirmLabel: 'Sim, excluir',
+      cancelLabel: 'Cancelar',
+      onConfirm: async () => {
+        await deleteDoc(doc(db,'salas',id));
+        window.showToast('Sala removida','info');
+      }
+    });
+  };
+
+  window.manualDeallocate = () => {
+    if (!guardAdmin()) return;
+    const profId = document.getElementById('manual-prof-select').value;
+    if (!profId) { window.showToast('Selecione o professor','error'); return; }
+    const prof = window._state.professors.find(p => p.id === profId);
+    const room = window._state.rooms.find(r => r.profId === profId);
+    if (!room) { window.showToast(`${prof?.name} não está em nenhuma sala`,'info'); return; }
+    showConfirmModal({
+      icon: '🚪',
+      iconType: 'warn',
+      title: 'Retirar da sala?',
+      body: `Deseja retirar <strong>${prof?.name}</strong> de <strong>${room.name}</strong>?`,
+      confirmLabel: 'Sim, retirar',
+      cancelLabel: 'Cancelar',
+      onConfirm: async () => {
+        await updateDoc(doc(db,'salas',room.id),{profId:null});
+        await updateDoc(doc(db,'professores',profId),{updatedAt:serverTimestamp()});
+        await logMovimento({ profId, profNome: prof?.name||'?', salaId: room.id, salaNome: room.name, acao: 'saida' });
+        window.showToast(`${prof?.name} saiu da sala`,'info');
+      }
+    });
+  };
+
+  // ──────────────────────────────────────────────────────────────────────────
 
   window.addSala = async () => {
     if (!guardAdmin('Apenas admins podem cadastrar salas')) return;
@@ -408,12 +517,6 @@
     document.getElementById('sala-nome').value='';
     document.getElementById('sala-codigo').value='';
     window.showToast('Sala cadastrada!','success');
-  };
-
-  window.deleteRoom = async (id) => {
-    if (!guardAdmin()) return;
-    await deleteDoc(doc(db,'salas',id));
-    window.showToast('Sala removida','info');
   };
 
   window.manualAllocate = async () => {
@@ -459,19 +562,6 @@
     await updateDoc(doc(db,'professores',profId),{updatedAt:serverTimestamp()});
     await logMovimento({ profId, profNome: prof.name, salaId: room.id, salaNome: room.name, acao: 'entrada' });
     window.showToast(`✅ ${prof.name} → ${room.name}`,'success');
-  };
-
-  window.manualDeallocate = async () => {
-    if (!guardAdmin()) return;
-    const profId=document.getElementById('manual-prof-select').value;
-    if (!profId) { window.showToast('Selecione o professor','error'); return; }
-    const prof=window._state.professors.find(p=>p.id===profId);
-    const room=window._state.rooms.find(r=>r.profId===profId);
-    if (!room) { window.showToast(`${prof?.name} não está em nenhuma sala`,'info'); return; }
-    await updateDoc(doc(db,'salas',room.id),{profId:null});
-    await updateDoc(doc(db,'professores',profId),{updatedAt:serverTimestamp()});
-    await logMovimento({ profId, profNome: prof?.name||'?', salaId: room.id, salaNome: room.name, acao: 'saida' });
-    window.showToast(`${prof?.name} saiu da sala`,'info');
   };
 
   window.downloadQR = (roomId, roomName) => {
@@ -748,7 +838,10 @@ input,select{font:inherit;color:inherit}
 .modal-backdrop.open{opacity:1;pointer-events:all}
 .modal-box{background:var(--surface);border-radius:1.25rem;border:1px solid var(--border);box-shadow:var(--shadow-lg);padding:1.5rem;max-width:380px;width:100%;transform:translateY(16px) scale(.97);transition:transform .25s cubic-bezier(.16,1,.3,1)}
 .modal-backdrop.open .modal-box{transform:translateY(0) scale(1)}
-.modal-icon{width:48px;height:48px;border-radius:9999px;background:var(--warn-l);color:var(--warn);display:flex;align-items:center;justify-content:center;margin-bottom:1rem}
+.modal-icon{width:48px;height:48px;border-radius:9999px;display:flex;align-items:center;justify-content:center;font-size:1.5rem;margin-bottom:1rem}
+.modal-icon-danger{background:var(--error-l);color:var(--error)}
+.modal-icon-warn{background:var(--warn-l);color:var(--warn)}
+.modal-icon-info{background:var(--primary-l);color:var(--primary)}
 .modal-title{font-family:'Space Grotesk',sans-serif;font-size:1.1rem;font-weight:700;margin-bottom:.375rem}
 .modal-body{font-size:.9rem;color:var(--muted);line-height:1.55;margin-bottom:1.25rem}
 .modal-body strong{color:var(--text)}
@@ -937,11 +1030,10 @@ input,select{font:inherit;color:inherit}
 
 </main>
 
+<!-- Modal sala ocupada -->
 <div class="modal-backdrop" id="occupied-modal" role="dialog" aria-modal="true" aria-labelledby="occupied-modal-title">
   <div class="modal-box">
-    <div class="modal-icon">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-    </div>
+    <div class="modal-icon modal-icon-warn">⚠️</div>
     <h2 class="modal-title" id="occupied-modal-title">Sala ocupada!</h2>
     <p class="modal-body">
       <strong id="occupied-room-name"></strong> já está com
@@ -951,6 +1043,19 @@ input,select{font:inherit;color:inherit}
     <div class="modal-actions">
       <button class="btn btn-secondary" id="occupied-cancel">Cancelar</button>
       <button class="btn btn-warn" id="occupied-confirm">Sim, substituir</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal de confirmação genérico -->
+<div class="modal-backdrop" id="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
+  <div class="modal-box">
+    <div class="modal-icon modal-icon-danger" id="confirm-modal-icon">🗑️</div>
+    <h2 class="modal-title" id="confirm-modal-title">Confirmar ação</h2>
+    <p class="modal-body" id="confirm-modal-body"></p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="confirm-modal-cancel">Cancelar</button>
+      <button class="btn btn-danger" id="confirm-modal-ok">Confirmar</button>
     </div>
   </div>
 </div>
@@ -989,9 +1094,10 @@ window.showToast=(msg,type='info')=>{
   setTimeout(()=>{ t.style.animation='slide-out .3s forwards'; setTimeout(()=>t.remove(),300); },3200);
 };
 document.getElementById('occupied-modal').addEventListener('click', e => {
-  if (e.target === e.currentTarget) {
-    document.getElementById('occupied-cancel').click();
-  }
+  if (e.target === e.currentTarget) document.getElementById('occupied-cancel').click();
+});
+document.getElementById('confirm-modal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) document.getElementById('confirm-modal-cancel').click();
 });
 document.getElementById('search-input').addEventListener('input', e => {
   window._state.searchQuery = e.target.value;
