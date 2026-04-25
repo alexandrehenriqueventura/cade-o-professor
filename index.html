@@ -37,7 +37,6 @@
   const profsCol = collection(db, "professores");
   const roomsCol = collection(db, "salas");
 
-  // currentProf = professor logado encontrado na coleção 'professores'
   window._state = { professors: [], rooms: [], isAdmin: false, user: null, currentProf: null };
 
   const COLORS = ['#2563eb','#7c3aed','#db2777','#dc2626','#d97706','#16a34a','#0891b2','#059669','#9333ea','#c026d3','#ea580c','#65a30d'];
@@ -50,7 +49,6 @@
     return snap.exists() && snap.data().ativo === true;
   }
 
-  // Busca o professor cadastrado pelo e-mail do usuário logado
   function findProfByEmail(email) {
     if (!email) return null;
     return window._state.professors.find(p => p.email && p.email.toLowerCase() === email.toLowerCase()) || null;
@@ -61,7 +59,6 @@
       const isAdmin = await checkAdmin(user.email);
       window._state.user = user;
       window._state.isAdmin = isAdmin;
-      // Busca o professor correspondente ao e-mail logado
       const currentProf = findProfByEmail(user.email);
       window._state.currentProf = currentProf;
       updateAuthUI(user, isAdmin, currentProf);
@@ -113,13 +110,11 @@
     document.querySelectorAll('.admin-tab').forEach(el => el.style.display = isAdmin ? '' : 'none');
   }
 
-  // Renderiza o painel do scanner conforme o estado do usuário
   function renderScannerPanel() {
     const { user, isAdmin, currentProf } = window._state;
     const noLogin = document.getElementById('scanner-no-login');
     const notProf = document.getElementById('scanner-not-prof');
     const profPanel = document.getElementById('scanner-prof-panel');
-    const adminPanel = document.querySelector('.card.admin-only');
 
     if (!user) {
       noLogin.style.display = 'block';
@@ -133,7 +128,6 @@
       noLogin.style.display = 'none';
       notProf.style.display = 'none';
       profPanel.style.display = 'block';
-      // Atualiza info do professor no painel do scanner
       if (currentProf) {
         const infoEl = document.getElementById('scanner-prof-info');
         const room = getRoomOfProf(currentProf.id);
@@ -253,7 +247,6 @@
 
   function renderAll() {
     renderPainel(); renderProfManage(); renderRooms(); updateSelects();
-    // Reavalia professor logado após mudança nos dados
     if (window._state.user) {
       window._state.currentProf = findProfByEmail(window._state.user.email);
     }
@@ -288,7 +281,6 @@
     const disc = document.getElementById('prof-disciplina').value.trim();
     const email = document.getElementById('prof-email').value.trim().toLowerCase();
     if (!nome || !disc || !email) { window.showToast('Preencha todos os campos, incluindo o e-mail','error'); return; }
-    // Verifica se e-mail já está cadastrado
     const jaExiste = window._state.professors.find(p => p.email && p.email.toLowerCase() === email);
     if (jaExiste) { window.showToast('Este e-mail já está cadastrado','error'); return; }
     await setDoc(doc(db,'professores','prof-'+Date.now()),{name:nome, subject:disc, email:email});
@@ -312,7 +304,6 @@
     if (room) { await updateDoc(doc(db,'salas',room.id),{profId:null}); window.showToast('Professor saiu da sala','info'); }
   };
 
-  // Professor sai da própria sala sem precisar ser admin
   window.selfDeallocate = async () => {
     const prof = window._state.currentProf;
     if (!prof) return;
@@ -380,9 +371,38 @@
 
   let _scanner=null, _scannerActive=false;
 
+  // ─── Modal de confirmação de sala ocupada ───────────────────────────────────
+  function showOccupiedModal({ roomName, currentProfName, newProfName, onConfirm, onCancel }) {
+    const modal = document.getElementById('occupied-modal');
+    document.getElementById('occupied-room-name').textContent = roomName;
+    document.getElementById('occupied-current-prof').textContent = currentProfName;
+    document.getElementById('occupied-new-prof').textContent = newProfName;
+    modal.classList.add('open');
+
+    const btnConfirm = document.getElementById('occupied-confirm');
+    const btnCancel  = document.getElementById('occupied-cancel');
+
+    function cleanup() {
+      modal.classList.remove('open');
+      btnConfirm.replaceWith(btnConfirm.cloneNode(true));
+      btnCancel.replaceWith(btnCancel.cloneNode(true));
+    }
+
+    document.getElementById('occupied-confirm').addEventListener('click', () => { cleanup(); onConfirm(); }, { once: true });
+    document.getElementById('occupied-cancel').addEventListener('click',  () => { cleanup(); onCancel();  }, { once: true });
+  }
+  // ───────────────────────────────────────────────────────────────────────────
+
+  async function doAllocate(db, profId, room, prof) {
+    const old = window._state.rooms.find(r => r.profId === profId);
+    if (old) await updateDoc(doc(db,'salas',old.id),{profId:null});
+    await updateDoc(doc(db,'salas',room.id),{profId:profId});
+    document.getElementById('scan-result-box').className='scan-result success';
+    document.getElementById('scan-result-box').textContent=`✅ ${prof?.name} alocado(a) na ${room.name}!`;
+  }
+
   window.startScanner = () => {
     const { user, isAdmin, currentProf } = window._state;
-    // Verifica se é professor cadastrado ou admin
     if (!user) { window.showToast('Faça login para escanear','error'); return; }
     if (!isAdmin && !currentProf) { window.showToast('Seu e-mail não está cadastrado como professor','error'); return; }
     if (_scannerActive) return;
@@ -393,25 +413,43 @@
     document.getElementById('btn-stop-scan').style.display='flex';
     document.getElementById('scan-result-box').className='scan-result';
 
-    // Se for admin sem conta de professor, usa seleção manual
     const profId = currentProf ? currentProf.id : document.getElementById('manual-prof-select')?.value;
 
     _scanner=new Html5Qrcode('qr-reader');
     _scanner.start({facingMode:'environment'},{fps:10,qrbox:{width:220,height:220}},
       async (decoded) => {
         window.stopScanner();
-        const room=window._state.rooms.find(r=>r.id===decoded);
-        const prof=window._state.professors.find(p=>p.id===profId) || currentProf;
+        const room = window._state.rooms.find(r => r.id === decoded);
+        const prof = window._state.professors.find(p => p.id === profId) || currentProf;
+
         if (!room) {
           document.getElementById('scan-result-box').className='scan-result error';
           document.getElementById('scan-result-box').textContent='❌ QR Code não reconhecido';
           return;
         }
-        const old=window._state.rooms.find(r=>r.profId===profId);
-        if (old) await updateDoc(doc(db,'salas',old.id),{profId:null});
-        await updateDoc(doc(db,'salas',room.id),{profId:profId});
-        document.getElementById('scan-result-box').className='scan-result success';
-        document.getElementById('scan-result-box').textContent=`✅ ${prof?.name} alocado(a) na ${room.name}!`;
+
+        // ── Verificação: sala ocupada por outro professor? ──────────────────
+        const currentOccupant = room.profId
+          ? window._state.professors.find(p => p.id === room.profId)
+          : null;
+
+        // Se a sala está ocupada por OUTRO professor (não pelo próprio)
+        if (currentOccupant && currentOccupant.id !== profId) {
+          showOccupiedModal({
+            roomName: room.name,
+            currentProfName: currentOccupant.name,
+            newProfName: prof?.name || 'Você',
+            onConfirm: () => doAllocate(db, profId, room, prof),
+            onCancel: () => {
+              document.getElementById('scan-result-box').className='scan-result error';
+              document.getElementById('scan-result-box').textContent=`⚠️ Alocação cancelada. ${room.name} continua com ${currentOccupant.name}.`;
+            }
+          });
+          return;
+        }
+        // ───────────────────────────────────────────────────────────────────
+
+        await doAllocate(db, profId, room, prof);
       },()=>{}
     ).then(()=>{ _scannerActive=true; })
     .catch(()=>{
@@ -437,8 +475,8 @@
 </script>
 
 <style>
-:root,[data-theme="light"]{--bg:#f4f6fb;--surface:#fff;--surface2:#f8f9fc;--surfoff:#eef0f6;--border:rgba(0,0,0,.08);--div:#e5e7ef;--text:#1a1d2e;--muted:#6b7280;--faint:#b0b7c3;--primary:#2563eb;--primary-h:#1d4ed8;--primary-l:#dbeafe;--success:#16a34a;--success-l:#dcfce7;--error:#dc2626;--error-l:#fee2e2;--present:#16a34a;--absent:#9ca3af;--shadow-sm:0 1px 3px rgba(0,0,0,.07);--shadow-md:0 4px 12px rgba(0,0,0,.08);--shadow-lg:0 12px 32px rgba(0,0,0,.10);--r:.5rem;--tr:180ms cubic-bezier(.16,1,.3,1)}
-[data-theme="dark"]{--bg:#0f1117;--surface:#1a1d2e;--surface2:#1f2235;--surfoff:#252840;--border:rgba(255,255,255,.08);--div:#2a2d42;--text:#e8eaf0;--muted:#8b90a7;--faint:#4a4f6a;--primary:#3b82f6;--primary-h:#60a5fa;--primary-l:#1e3a5f;--success:#22c55e;--success-l:#14532d;--error:#ef4444;--error-l:#450a0a;--present:#22c55e;--absent:#4b5563;--shadow-sm:0 1px 3px rgba(0,0,0,.3);--shadow-md:0 4px 12px rgba(0,0,0,.4);--shadow-lg:0 12px 32px rgba(0,0,0,.5)}
+:root,[data-theme="light"]{--bg:#f4f6fb;--surface:#fff;--surface2:#f8f9fc;--surfoff:#eef0f6;--border:rgba(0,0,0,.08);--div:#e5e7ef;--text:#1a1d2e;--muted:#6b7280;--faint:#b0b7c3;--primary:#2563eb;--primary-h:#1d4ed8;--primary-l:#dbeafe;--success:#16a34a;--success-l:#dcfce7;--error:#dc2626;--error-l:#fee2e2;--warn:#d97706;--warn-l:#fef3c7;--present:#16a34a;--absent:#9ca3af;--shadow-sm:0 1px 3px rgba(0,0,0,.07);--shadow-md:0 4px 12px rgba(0,0,0,.08);--shadow-lg:0 12px 32px rgba(0,0,0,.10);--r:.5rem;--tr:180ms cubic-bezier(.16,1,.3,1)}
+[data-theme="dark"]{--bg:#0f1117;--surface:#1a1d2e;--surface2:#1f2235;--surfoff:#252840;--border:rgba(255,255,255,.08);--div:#2a2d42;--text:#e8eaf0;--muted:#8b90a7;--faint:#4a4f6a;--primary:#3b82f6;--primary-h:#60a5fa;--primary-l:#1e3a5f;--success:#22c55e;--success-l:#14532d;--error:#ef4444;--error-l:#450a0a;--warn:#fbbf24;--warn-l:#3d2e00;--present:#22c55e;--absent:#4b5563;--shadow-sm:0 1px 3px rgba(0,0,0,.3);--shadow-md:0 4px 12px rgba(0,0,0,.4);--shadow-lg:0 12px 32px rgba(0,0,0,.5)}
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html{-webkit-font-smoothing:antialiased}
 body{min-height:100dvh;font-family:'Inter',sans-serif;color:var(--text);background:var(--bg)}
@@ -520,6 +558,8 @@ input,select{font:inherit;color:inherit}
 .btn-secondary:hover{background:var(--div)}
 .btn-danger{background:var(--error-l);color:var(--error)}
 .btn-danger:hover{background:var(--error);color:white}
+.btn-warn{background:var(--warn-l);color:var(--warn)}
+.btn-warn:hover{background:var(--warn);color:white}
 .btn-sm{padding:.4rem .875rem;font-size:.8rem}
 .section-title{font-family:'Space Grotesk',sans-serif;font-size:clamp(1.125rem,1rem + .75vw,1.5rem);font-weight:700;letter-spacing:-.02em}
 .section-sub{font-size:.9rem;color:var(--muted);margin-top:.25rem;margin-bottom:1.25rem}
@@ -552,6 +592,20 @@ input,select{font:inherit;color:inherit}
 .toast.info{border-left:3px solid var(--primary)}
 @keyframes slide-in{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:translateX(0)}}
 @keyframes slide-out{from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(24px)}}
+
+/* ── Modal sala ocupada ──────────────────────────────────────────────────── */
+.modal-backdrop{position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.45);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:1rem;opacity:0;pointer-events:none;transition:opacity .2s ease}
+.modal-backdrop.open{opacity:1;pointer-events:all}
+.modal-box{background:var(--surface);border-radius:1.25rem;border:1px solid var(--border);box-shadow:var(--shadow-lg);padding:1.5rem;max-width:380px;width:100%;transform:translateY(16px) scale(.97);transition:transform .25s cubic-bezier(.16,1,.3,1)}
+.modal-backdrop.open .modal-box{transform:translateY(0) scale(1)}
+.modal-icon{width:48px;height:48px;border-radius:9999px;background:var(--warn-l);color:var(--warn);display:flex;align-items:center;justify-content:center;margin-bottom:1rem}
+.modal-title{font-family:'Space Grotesk',sans-serif;font-size:1.1rem;font-weight:700;margin-bottom:.375rem}
+.modal-body{font-size:.9rem;color:var(--muted);line-height:1.55;margin-bottom:1.25rem}
+.modal-body strong{color:var(--text)}
+.modal-actions{display:flex;gap:.75rem;flex-wrap:wrap}
+.modal-actions .btn{flex:1}
+/* ──────────────────────────────────────────────────────────────────────── */
+
 @media print{.app-header,.tab-nav,.no-print{display:none!important}.tab-panel{display:block!important}.qr-grid{grid-template-columns:repeat(3,1fr)}.qr-card{break-inside:avoid}body{background:white}}
 @media(max-width:600px){.form-row{grid-template-columns:1fr}.form-row-3{grid-template-columns:1fr}.tab-btn span{display:none}.user-name{display:none}}
 </style>
@@ -719,6 +773,26 @@ input,select{font:inherit;color:inherit}
 
 </main>
 
+<!-- ── Modal: sala ocupada ─────────────────────────────────────────────────── -->
+<div class="modal-backdrop" id="occupied-modal" role="dialog" aria-modal="true" aria-labelledby="occupied-modal-title">
+  <div class="modal-box">
+    <div class="modal-icon">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    </div>
+    <h2 class="modal-title" id="occupied-modal-title">Sala ocupada!</h2>
+    <p class="modal-body">
+      <strong id="occupied-room-name"></strong> já está com
+      <strong id="occupied-current-prof"></strong>.<br><br>
+      Deseja substituir e alocar <strong id="occupied-new-prof"></strong> no lugar?
+    </p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="occupied-cancel">Cancelar</button>
+      <button class="btn btn-warn" id="occupied-confirm">Sim, substituir</button>
+    </div>
+  </div>
+</div>
+<!-- ────────────────────────────────────────────────────────────────────────── -->
+
 <div class="toast-container" id="toast-container"></div>
 
 <script>
@@ -740,7 +814,6 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
     if(tab==='qrcodes'&&window.renderQRCodes) window.renderQRCodes();
   });
 });
-// Botão de login direto na tela do scanner
 document.getElementById('btn-login-scanner').onclick = () => {
   document.getElementById('auth-btn').click();
 };
@@ -752,6 +825,12 @@ window.showToast=(msg,type='info')=>{
   c.appendChild(t);
   setTimeout(()=>{ t.style.animation='slide-out .3s forwards'; setTimeout(()=>t.remove(),300); },3200);
 };
+// Fecha modal ao clicar no backdrop
+document.getElementById('occupied-modal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) {
+    document.getElementById('occupied-cancel').click();
+  }
+});
 </script>
 </body>
 </html>
