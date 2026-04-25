@@ -1,0 +1,68 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Funções auxiliares ───────────────────────────────────────────────
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.token.email)) &&
+        get(/databases/$(database)/documents/admins/$(request.auth.token.email)).data.ativo == true;
+    }
+    // ────────────────────────────────────────────────────────────────────
+
+    // ── admins ───────────────────────────────────────────────────────────
+    // Qualquer usuário autenticado pode verificar se é admin
+    // Apenas admins podem criar/alterar/excluir outros admins
+    match /admins/{email} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // ── professores ──────────────────────────────────────────────────────
+    // Leitura pública: alunos podem ver o painel sem login
+    // Criação/exclusão: somente admin
+    // Atualização: admin tem acesso total;
+    //   professor autenticado só pode atualizar seu próprio campo updatedAt
+    match /professores/{profId} {
+      allow read: if true;
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() ||
+        (isAuthenticated() &&
+         request.auth.token.email == resource.data.email &&
+         request.resource.data.diff(resource.data).affectedKeys()
+           .hasOnly(['updatedAt']));
+    }
+
+    // ── salas ────────────────────────────────────────────────────────────
+    // Leitura pública: alunos podem ver onde os professores estão
+    // Criação/exclusão: somente admin
+    // Atualização: admin tem acesso total;
+    //   usuário autenticado (professor) só pode alterar o campo profId
+    //   (para se alocar ou sair via scanner QR)
+    match /salas/{salaId} {
+      allow read: if true;
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() ||
+        (isAuthenticated() &&
+         request.resource.data.diff(resource.data).affectedKeys()
+           .hasOnly(['profId']));
+    }
+
+    // ── historico ────────────────────────────────────────────────────────
+    // Leitura: somente admin
+    // Criação: qualquer usuário autenticado, com campos obrigatórios validados
+    // Atualização/exclusão: ninguém — log é imutável
+    match /historico/{logId} {
+      allow read: if isAdmin();
+      allow create: if isAuthenticated() &&
+        request.resource.data.keys().hasAll(['profId','profNome','salaId','salaNome','acao','ts']) &&
+        request.resource.data.acao in ['entrada', 'saida'];
+      allow update, delete: if false;
+    }
+
+  }
+}
