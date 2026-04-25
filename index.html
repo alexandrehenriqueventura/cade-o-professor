@@ -14,7 +14,7 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js";
   import {
     getFirestore, collection, doc, setDoc, deleteDoc,
-    onSnapshot, getDocs, updateDoc, getDoc
+    onSnapshot, getDocs, updateDoc, getDoc, addDoc, serverTimestamp, query, orderBy, limit
   } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore.js";
   import {
     getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged
@@ -36,12 +36,31 @@
 
   const profsCol = collection(db, "professores");
   const roomsCol = collection(db, "salas");
+  const logCol   = collection(db, "historico");
 
-  window._state = { professors: [], rooms: [], isAdmin: false, user: null, currentProf: null };
+  window._state = { professors: [], rooms: [], isAdmin: false, user: null, currentProf: null, searchQuery: '' };
+
+  // ── UUID v4 simples ────────────────────────────────────────────────────────
+  function uuidv4() {
+    return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+      (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16));
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   const COLORS = ['#2563eb','#7c3aed','#db2777','#dc2626','#d97706','#16a34a','#0891b2','#059669','#9333ea','#c026d3','#ea580c','#65a30d'];
   window.avatarColor = n => { let h=0; for(let c of n) h=(h*31+c.charCodeAt(0))%COLORS.length; return COLORS[Math.abs(h)]; };
   window.initials = n => n.trim().split(' ').filter(Boolean).slice(0,2).map(w=>w[0].toUpperCase()).join('');
+
+  // ── Formata timestamp relativo ─────────────────────────────────────────────
+  function timeAgo(ts) {
+    if (!ts) return '';
+    const diff = Math.floor((Date.now() - ts.toMillis()) / 1000);
+    if (diff < 60) return 'agora mesmo';
+    if (diff < 3600) return `há ${Math.floor(diff/60)} min`;
+    if (diff < 86400) return `há ${Math.floor(diff/3600)}h`;
+    return `há ${Math.floor(diff/86400)}d`;
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   async function checkAdmin(email) {
     if (!email) return false;
@@ -155,21 +174,36 @@
   function getRoomOfProf(profId) { return window._state.rooms.find(r => r.profId === profId) || null; }
 
   function renderPainel() {
-    const profs = window._state.professors;
-    const inRoom = profs.filter(p => getRoomOfProf(p.id));
-    document.getElementById('stat-total').textContent = profs.length;
+    const query = (window._state.searchQuery || '').toLowerCase().trim();
+    const allProfs = window._state.professors;
+    const profs = query
+      ? allProfs.filter(p => p.name.toLowerCase().includes(query) || p.subject.toLowerCase().includes(query))
+      : allProfs;
+
+    const inRoom = allProfs.filter(p => getRoomOfProf(p.id));
+    document.getElementById('stat-total').textContent = allProfs.length;
     document.getElementById('stat-present').textContent = inRoom.length;
-    document.getElementById('stat-absent').textContent = profs.length - inRoom.length;
+    document.getElementById('stat-absent').textContent = allProfs.length - inRoom.length;
+
     const c = document.getElementById('painel-list');
-    if (!profs.length) {
+    if (!allProfs.length) {
       c.innerHTML = `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg><h3>Nenhum professor cadastrado</h3><p>Um administrador precisa cadastrar os professores</p></div>`;
+      return;
+    }
+    if (!profs.length) {
+      c.innerHTML = `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/></svg><h3>Nenhum resultado</h3><p>Nenhum professor encontrado para "<strong>${query}</strong>"</p></div>`;
       return;
     }
     c.innerHTML = profs.map(p => {
       const room = getRoomOfProf(p.id);
+      const ago = p.updatedAt ? `<div class="prof-time">${timeAgo(p.updatedAt)}</div>` : '';
       return `<div class="prof-card ${room?'present':''}">
         <div class="prof-avatar" style="background:${window.avatarColor(p.name)}">${window.initials(p.name)}</div>
-        <div class="prof-info"><div class="prof-name">${p.name}</div><div class="prof-subject">${p.subject}</div></div>
+        <div class="prof-info">
+          <div class="prof-name">${p.name}</div>
+          <div class="prof-subject">${p.subject}</div>
+          ${ago}
+        </div>
         ${room ? `<span class="prof-room">📍 ${room.name}</span>` : `<div class="prof-status-dot"></div>`}
       </div>`;
     }).join('');
@@ -230,6 +264,38 @@
     });
   }
 
+  // ── Renderiza histórico ────────────────────────────────────────────────────
+  async function renderHistorico() {
+    const c = document.getElementById('historico-list');
+    c.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--muted)">Carregando...</div>`;
+    try {
+      const q = query(logCol, orderBy('ts', 'desc'), limit(50));
+      const snap = await getDocs(q);
+      if (snap.empty) {
+        c.innerHTML = `<div class="empty-state"><h3>Nenhum registro ainda</h3><p>Os movimentos aparecerão aqui assim que professores forem alocados.</p></div>`;
+        return;
+      }
+      c.innerHTML = snap.docs.map(d => {
+        const r = d.data();
+        const dt = r.ts ? new Date(r.ts.toMillis()).toLocaleString('pt-BR') : '—';
+        const icon = r.acao === 'entrada' ? '📥' : '📤';
+        const cls  = r.acao === 'entrada' ? 'log-entrada' : 'log-saida';
+        return `<div class="log-row ${cls}">
+          <span class="log-icon">${icon}</span>
+          <div class="log-info">
+            <span class="log-prof">${r.profNome}</span>
+            <span class="log-detail">${r.acao === 'entrada' ? `entrou em ${r.salaNome}` : `saiu de ${r.salaNome}`}</span>
+          </div>
+          <span class="log-time">${dt}</span>
+        </div>`;
+      }).join('');
+    } catch(e) {
+      c.innerHTML = `<div class="empty-state"><h3>Erro ao carregar histórico</h3><p>${e.message}</p></div>`;
+    }
+  }
+  window.renderHistorico = renderHistorico;
+  // ─────────────────────────────────────────────────────────────────────────
+
   function updateSelects() {
     const rs = document.getElementById('manual-room-select');
     if (rs) {
@@ -252,6 +318,7 @@
     }
     renderScannerPanel();
     if (document.getElementById('tab-qrcodes')?.classList.contains('active')) renderQRCodes();
+    if (document.getElementById('tab-historico')?.classList.contains('active')) renderHistorico();
     applyAdminAccess(window._state.isAdmin);
   }
 
@@ -262,7 +329,7 @@
     const snap = await getDocs(roomsCol);
     if (snap.empty) {
       for (let i=1;i<=13;i++) {
-        const id='sala-'+String(i).padStart(2,'0');
+        const id = uuidv4(); // ← UUID aleatório em vez de "sala-01"
         await setDoc(doc(db,'salas',id),{name:'Sala '+String(i).padStart(2,'0'),code:String(i).padStart(2,'0'),profId:null});
       }
       window.showToast('13 salas padrão criadas!','success');
@@ -275,9 +342,6 @@
     return true;
   }
 
-  // ── Verifica se o usuário logado pode alocar o profId solicitado ──────────
-  // Admin: pode alocar qualquer professor
-  // Professor: só pode se alocar (profId deve ser o seu próprio id)
   function guardAllocate(profId) {
     const { isAdmin, currentProf, user } = window._state;
     if (!user) { window.showToast('Faça login para continuar', 'error'); return false; }
@@ -285,6 +349,13 @@
     if (currentProf && currentProf.id === profId) return true;
     window.showToast('Você só pode se alocar na própria sala', 'error');
     return false;
+  }
+
+  // ── Salva registro no histórico ────────────────────────────────────────────
+  async function logMovimento({ profId, profNome, salaId, salaNome, acao }) {
+    try {
+      await addDoc(logCol, { profId, profNome, salaId, salaNome, acao, ts: serverTimestamp() });
+    } catch(e) { console.warn('Erro ao salvar histórico:', e); }
   }
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -314,7 +385,13 @@
   window.deallocateProf = async (profId) => {
     if (!guardAdmin()) return;
     const room=window._state.rooms.find(r=>r.profId===profId);
-    if (room) { await updateDoc(doc(db,'salas',room.id),{profId:null}); window.showToast('Professor saiu da sala','info'); }
+    if (room) {
+      const prof = window._state.professors.find(p=>p.id===profId);
+      await updateDoc(doc(db,'salas',room.id),{profId:null});
+      await updateDoc(doc(db,'professores',profId),{updatedAt:serverTimestamp()});
+      await logMovimento({ profId, profNome: prof?.name||'?', salaId: room.id, salaNome: room.name, acao: 'saida' });
+      window.showToast('Professor saiu da sala','info');
+    }
   };
 
   window.selfDeallocate = async () => {
@@ -324,6 +401,8 @@
     const room = window._state.rooms.find(r => r.profId === prof.id);
     if (!room) { window.showToast('Você não está em nenhuma sala','info'); return; }
     await updateDoc(doc(db,'salas',room.id),{profId:null});
+    await updateDoc(doc(db,'professores',prof.id),{updatedAt:serverTimestamp()});
+    await logMovimento({ profId: prof.id, profNome: prof.name, salaId: room.id, salaNome: room.name, acao: 'saida' });
     window.showToast(`Você saiu de ${room.name}`,'info');
   };
 
@@ -332,7 +411,8 @@
     const nome=document.getElementById('sala-nome').value.trim();
     const codigo=document.getElementById('sala-codigo').value.trim();
     if (!nome) { window.showToast('Informe o nome da sala','error'); return; }
-    await setDoc(doc(db,'salas','sala-'+Date.now()),{name:nome,code:codigo||nome,profId:null});
+    const id = uuidv4(); // ← UUID aleatório
+    await setDoc(doc(db,'salas',id),{name:nome,code:codigo||nome,profId:null});
     document.getElementById('sala-nome').value='';
     document.getElementById('sala-codigo').value='';
     window.showToast('Sala cadastrada!','success');
@@ -353,7 +433,6 @@
     const room=window._state.rooms.find(r=>r.id===roomId);
     if (!prof||!room) { window.showToast('Não reconhecido','error'); return; }
 
-    // ── Verificação: sala já ocupada por outro professor? ──────────────────
     const currentOccupant = room.profId
       ? window._state.professors.find(p => p.id === room.profId)
       : null;
@@ -365,19 +444,28 @@
         newProfName: prof.name,
         onConfirm: async () => {
           const old=window._state.rooms.find(r=>r.profId===profId);
-          if (old) await updateDoc(doc(db,'salas',old.id),{profId:null});
-          await updateDoc(doc(db,'salas',roomId),{profId:profId});
+          if (old) {
+            await updateDoc(doc(db,'salas',old.id),{profId:null});
+            await logMovimento({ profId, profNome: prof.name, salaId: old.id, salaNome: old.name, acao: 'saida' });
+          }
+          await updateDoc(doc(db,'salas',room.id),{profId:profId});
+          await updateDoc(doc(db,'professores',profId),{updatedAt:serverTimestamp()});
+          await logMovimento({ profId, profNome: prof.name, salaId: room.id, salaNome: room.name, acao: 'entrada' });
           window.showToast(`✅ ${prof.name} → ${room.name}`,'success');
         },
         onCancel: () => window.showToast('Alocação cancelada','info')
       });
       return;
     }
-    // ──────────────────────────────────────────────────────────────────────
 
     const old=window._state.rooms.find(r=>r.profId===profId);
-    if (old) await updateDoc(doc(db,'salas',old.id),{profId:null});
+    if (old) {
+      await updateDoc(doc(db,'salas',old.id),{profId:null});
+      await logMovimento({ profId, profNome: prof.name, salaId: old.id, salaNome: old.name, acao: 'saida' });
+    }
     await updateDoc(doc(db,'salas',roomId),{profId:profId});
+    await updateDoc(doc(db,'professores',profId),{updatedAt:serverTimestamp()});
+    await logMovimento({ profId, profNome: prof.name, salaId: room.id, salaNome: room.name, acao: 'entrada' });
     window.showToast(`✅ ${prof.name} → ${room.name}`,'success');
   };
 
@@ -389,6 +477,8 @@
     const room=window._state.rooms.find(r=>r.profId===profId);
     if (!room) { window.showToast(`${prof?.name} não está em nenhuma sala`,'info'); return; }
     await updateDoc(doc(db,'salas',room.id),{profId:null});
+    await updateDoc(doc(db,'professores',profId),{updatedAt:serverTimestamp()});
+    await logMovimento({ profId, profNome: prof?.name||'?', salaId: room.id, salaNome: room.name, acao: 'saida' });
     window.showToast(`${prof?.name} saiu da sala`,'info');
   };
 
@@ -430,18 +520,19 @@
   }
   // ───────────────────────────────────────────────────────────────────────────
 
-  // ── doAllocate: aloca profId na room, com verificação de identidade ────────
   async function doAllocate(db, profId, room, prof) {
-    // Segurança: apenas admin ou o próprio professor podem executar
     if (!guardAllocate(profId)) return;
-
     const old = window._state.rooms.find(r => r.profId === profId);
-    if (old) await updateDoc(doc(db,'salas',old.id),{profId:null});
+    if (old) {
+      await updateDoc(doc(db,'salas',old.id),{profId:null});
+      await logMovimento({ profId, profNome: prof?.name||'?', salaId: old.id, salaNome: old.name, acao: 'saida' });
+    }
     await updateDoc(doc(db,'salas',room.id),{profId:profId});
+    await updateDoc(doc(db,'professores',profId),{updatedAt:serverTimestamp()});
+    await logMovimento({ profId, profNome: prof?.name||'?', salaId: room.id, salaNome: room.name, acao: 'entrada' });
     document.getElementById('scan-result-box').className='scan-result success';
     document.getElementById('scan-result-box').textContent=`✅ ${prof?.name} alocado(a) na ${room.name}!`;
   }
-  // ─────────────────────────────────────────────────────────────────────────
 
   window.startScanner = () => {
     const { user, isAdmin, currentProf } = window._state;
@@ -455,7 +546,6 @@
     document.getElementById('btn-stop-scan').style.display='flex';
     document.getElementById('scan-result-box').className='scan-result';
 
-    // Professor usa sempre o próprio ID; admin usa o dropdown
     const profId = currentProf ? currentProf.id : document.getElementById('manual-prof-select')?.value;
 
     if (!profId) {
@@ -480,15 +570,12 @@
           return;
         }
 
-        // ── Verificação de identidade antes de tudo ─────────────────────────
         if (!guardAllocate(profId)) {
           document.getElementById('scan-result-box').className='scan-result error';
           document.getElementById('scan-result-box').textContent='❌ Você não tem permissão para alocar este professor.';
           return;
         }
-        // ───────────────────────────────────────────────────────────────────
 
-        // ── Verificação: sala ocupada por outro professor? ──────────────────
         const currentOccupant = room.profId
           ? window._state.professors.find(p => p.id === room.profId)
           : null;
@@ -506,7 +593,6 @@
           });
           return;
         }
-        // ───────────────────────────────────────────────────────────────────
 
         await doAllocate(db, profId, room, prof);
       },()=>{}
@@ -575,6 +661,14 @@ input,select{font:inherit;color:inherit}
 .stat-card.present .stat-value{color:var(--present)}
 .stat-card.absent .stat-value{color:var(--absent)}
 .stat-card.total .stat-value{color:var(--primary)}
+
+/* ── Busca ─────────────────────────────────────────────────────────────── */
+.search-bar{display:flex;align-items:center;gap:.625rem;background:var(--surface);border:1px solid var(--div);border-radius:var(--r);padding:.5rem .875rem;margin-bottom:1rem}
+.search-bar svg{color:var(--faint);flex-shrink:0}
+.search-bar input{flex:1;background:none;border:none;outline:none;font-size:.9rem;color:var(--text)}
+.search-bar input::placeholder{color:var(--faint)}
+/* ──────────────────────────────────────────────────────────────────────── */
+
 .prof-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:.75rem}
 .prof-card{background:var(--surface);border-radius:1rem;border:1px solid var(--border);padding:1rem;display:flex;align-items:center;gap:.75rem;position:relative;overflow:hidden}
 .prof-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--absent)}
@@ -584,6 +678,7 @@ input,select{font:inherit;color:inherit}
 .prof-name{font-weight:600;font-size:.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .prof-subject{font-size:.8rem;color:var(--muted)}
 .prof-email{font-size:.75rem;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prof-time{font-size:.72rem;color:var(--faint);margin-top:.15rem}
 .prof-room{font-size:.75rem;font-weight:600;padding:.25rem .625rem;border-radius:9999px;background:var(--success-l);color:var(--success);white-space:nowrap}
 .prof-status-dot{width:10px;height:10px;border-radius:9999px;background:var(--absent);flex-shrink:0}
 .prof-card.present .prof-status-dot{background:var(--present)}
@@ -652,6 +747,18 @@ input,select{font:inherit;color:inherit}
 @keyframes slide-in{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:translateX(0)}}
 @keyframes slide-out{from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(24px)}}
 
+/* ── Histórico ─────────────────────────────────────────────────────────── */
+.log-row{display:flex;align-items:center;gap:.75rem;padding:.75rem 1rem;border-bottom:1px solid var(--div);font-size:.875rem}
+.log-row:last-child{border-bottom:none}
+.log-icon{font-size:1.1rem;flex-shrink:0}
+.log-info{flex:1;display:flex;flex-direction:column;gap:.1rem}
+.log-prof{font-weight:600;color:var(--text)}
+.log-detail{font-size:.8rem;color:var(--muted)}
+.log-time{font-size:.75rem;color:var(--faint);white-space:nowrap}
+.log-entrada .log-icon{color:var(--success)}
+.log-saida .log-icon{color:var(--error)}
+/* ──────────────────────────────────────────────────────────────────────── */
+
 /* ── Modal sala ocupada ──────────────────────────────────────────────────── */
 .modal-backdrop{position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.45);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:1rem;opacity:0;pointer-events:none;transition:opacity .2s ease}
 .modal-backdrop.open{opacity:1;pointer-events:all}
@@ -708,6 +815,10 @@ input,select{font:inherit;color:inherit}
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="5" height="5" rx="1"/><rect x="16" y="3" width="5" height="5" rx="1"/><rect x="3" y="16" width="5" height="5" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/></svg>
     <span>QR Codes</span>
   </button>
+  <button class="tab-btn admin-tab" data-tab="historico" style="display:none">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/></svg>
+    <span>Histórico</span>
+  </button>
 </nav>
 
 <main class="app-main">
@@ -721,6 +832,11 @@ input,select{font:inherit;color:inherit}
       <div class="stat-card present"><span class="stat-value" id="stat-present">—</span><span class="stat-label">Em sala</span></div>
       <div class="stat-card absent"><span class="stat-value" id="stat-absent">—</span><span class="stat-label">Sem sala</span></div>
     </div>
+    <!-- Busca -->
+    <div class="search-bar">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+      <input type="text" id="search-input" placeholder="Buscar por nome ou disciplina…" autocomplete="off">
+    </div>
     <div class="card">
       <div class="card-title">📍 Localização dos professores</div>
       <div id="painel-list" class="prof-grid"></div>
@@ -732,20 +848,17 @@ input,select{font:inherit;color:inherit}
     <h1 class="section-title">Escanear QR Code</h1>
     <p class="section-sub">Aponte para o QR Code da sala</p>
 
-    <!-- Estado: não logado -->
     <div id="scanner-no-login" class="scanner-notice" style="display:none">
       <h3>🔑 Faça login para continuar</h3>
       <p>Apenas professores cadastrados podem se alocar nas salas.</p>
       <button class="btn btn-primary" style="margin-top:.875rem" id="btn-login-scanner">Entrar com Google</button>
     </div>
 
-    <!-- Estado: logado mas e-mail não cadastrado -->
     <div id="scanner-not-prof" class="scanner-notice warn" style="display:none">
       <h3>⛔ Acesso não autorizado</h3>
       <p>Seu e-mail não está cadastrado como professor nesta escola. Solicite ao administrador.</p>
     </div>
 
-    <!-- Estado: professor ou admin logado -->
     <div id="scanner-prof-panel" style="display:none">
       <div id="scanner-prof-info"></div>
       <div class="card">
@@ -765,7 +878,6 @@ input,select{font:inherit;color:inherit}
       </div>
     </div>
 
-    <!-- Alocação manual — apenas admin -->
     <div class="card admin-only" style="display:none">
       <div class="card-title">🖐 Alocação Manual — Admin</div>
       <div class="form-group">
@@ -830,6 +942,15 @@ input,select{font:inherit;color:inherit}
     <div id="qr-list" class="qr-grid"></div>
   </section>
 
+  <!-- HISTÓRICO (admin) -->
+  <section class="tab-panel" id="tab-historico">
+    <h1 class="section-title">Histórico de Movimentos</h1>
+    <p class="section-sub">Últimos 50 registros de entrada e saída</p>
+    <div class="card">
+      <div id="historico-list"><div style="text-align:center;padding:2rem;color:var(--muted)">Selecione esta aba para carregar o histórico.</div></div>
+    </div>
+  </section>
+
 </main>
 
 <!-- ── Modal: sala ocupada ─────────────────────────────────────────────────── -->
@@ -871,6 +992,7 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
     btn.classList.add('active');
     document.getElementById('tab-'+tab).classList.add('active');
     if(tab==='qrcodes'&&window.renderQRCodes) window.renderQRCodes();
+    if(tab==='historico'&&window.renderHistorico) window.renderHistorico();
   });
 });
 document.getElementById('btn-login-scanner').onclick = () => {
@@ -884,12 +1006,47 @@ window.showToast=(msg,type='info')=>{
   c.appendChild(t);
   setTimeout(()=>{ t.style.animation='slide-out .3s forwards'; setTimeout(()=>t.remove(),300); },3200);
 };
-// Fecha modal ao clicar no backdrop
 document.getElementById('occupied-modal').addEventListener('click', e => {
   if (e.target === e.currentTarget) {
     document.getElementById('occupied-cancel').click();
   }
 });
+// ── Busca no painel ─────────────────────────────────────────────────────────
+document.getElementById('search-input').addEventListener('input', e => {
+  window._state.searchQuery = e.target.value;
+  // renderPainel é chamado via renderAll, mas precisamos forçar aqui
+  // Como renderPainel é função interna do módulo, disparamos via _state + evento
+  document.dispatchEvent(new CustomEvent('search-update'));
+});
+document.addEventListener('search-update', () => {
+  // Força re-render do painel lendo _state.searchQuery
+  const profs = window._state.professors;
+  const query = (window._state.searchQuery||'').toLowerCase().trim();
+  const filtered = query ? profs.filter(p=>p.name.toLowerCase().includes(query)||p.subject.toLowerCase().includes(query)) : profs;
+  const allProfs = profs;
+  const inRoom = allProfs.filter(p => window._state.rooms.find(r=>r.profId===p.id));
+
+  const c = document.getElementById('painel-list');
+  if (!allProfs.length) return;
+  if (!filtered.length) {
+    c.innerHTML = `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/></svg><h3>Nenhum resultado</h3><p>Nenhum professor encontrado para "<strong>${query}</strong>"</p></div>`;
+    return;
+  }
+  const COLORS=['#2563eb','#7c3aed','#db2777','#dc2626','#d97706','#16a34a','#0891b2','#059669','#9333ea','#c026d3','#ea580c','#65a30d'];
+  const av=n=>{let h=0;for(let c of n)h=(h*31+c.charCodeAt(0))%COLORS.length;return COLORS[Math.abs(h)];};
+  const ini=n=>n.trim().split(' ').filter(Boolean).slice(0,2).map(w=>w[0].toUpperCase()).join('');
+  const ago=ts=>{if(!ts)return'';const d=Math.floor((Date.now()-ts.toMillis())/1000);if(d<60)return'agora mesmo';if(d<3600)return`há ${Math.floor(d/60)} min`;if(d<86400)return`há ${Math.floor(d/3600)}h`;return`há ${Math.floor(d/86400)}d`;};
+  c.innerHTML = filtered.map(p=>{
+    const room=window._state.rooms.find(r=>r.profId===p.id);
+    const t=p.updatedAt?`<div class="prof-time">${ago(p.updatedAt)}</div>`:'';
+    return `<div class="prof-card ${room?'present':''}">
+      <div class="prof-avatar" style="background:${av(p.name)}">${ini(p.name)}</div>
+      <div class="prof-info"><div class="prof-name">${p.name}</div><div class="prof-subject">${p.subject}</div>${t}</div>
+      ${room?`<span class="prof-room">📍 ${room.name}</span>`:`<div class="prof-status-dot"></div>`}
+    </div>`;
+  }).join('');
+});
+// ────────────────────────────────────────────────────────────────────────────
 </script>
 </body>
 </html>
