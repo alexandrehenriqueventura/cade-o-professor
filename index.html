@@ -275,6 +275,19 @@
     return true;
   }
 
+  // ── Verifica se o usuário logado pode alocar o profId solicitado ──────────
+  // Admin: pode alocar qualquer professor
+  // Professor: só pode se alocar (profId deve ser o seu próprio id)
+  function guardAllocate(profId) {
+    const { isAdmin, currentProf, user } = window._state;
+    if (!user) { window.showToast('Faça login para continuar', 'error'); return false; }
+    if (isAdmin) return true;
+    if (currentProf && currentProf.id === profId) return true;
+    window.showToast('Você só pode se alocar na própria sala', 'error');
+    return false;
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   window.addProfessor = async () => {
     if (!guardAdmin('Apenas admins podem cadastrar professores')) return;
     const nome = document.getElementById('prof-nome').value.trim();
@@ -307,6 +320,7 @@
   window.selfDeallocate = async () => {
     const prof = window._state.currentProf;
     if (!prof) return;
+    if (!window._state.user) { window.showToast('Faça login para continuar', 'error'); return; }
     const room = window._state.rooms.find(r => r.profId === prof.id);
     if (!room) { window.showToast('Você não está em nenhuma sala','info'); return; }
     await updateDoc(doc(db,'salas',room.id),{profId:null});
@@ -416,13 +430,18 @@
   }
   // ───────────────────────────────────────────────────────────────────────────
 
+  // ── doAllocate: aloca profId na room, com verificação de identidade ────────
   async function doAllocate(db, profId, room, prof) {
+    // Segurança: apenas admin ou o próprio professor podem executar
+    if (!guardAllocate(profId)) return;
+
     const old = window._state.rooms.find(r => r.profId === profId);
     if (old) await updateDoc(doc(db,'salas',old.id),{profId:null});
     await updateDoc(doc(db,'salas',room.id),{profId:profId});
     document.getElementById('scan-result-box').className='scan-result success';
     document.getElementById('scan-result-box').textContent=`✅ ${prof?.name} alocado(a) na ${room.name}!`;
   }
+  // ─────────────────────────────────────────────────────────────────────────
 
   window.startScanner = () => {
     const { user, isAdmin, currentProf } = window._state;
@@ -436,7 +455,17 @@
     document.getElementById('btn-stop-scan').style.display='flex';
     document.getElementById('scan-result-box').className='scan-result';
 
+    // Professor usa sempre o próprio ID; admin usa o dropdown
     const profId = currentProf ? currentProf.id : document.getElementById('manual-prof-select')?.value;
+
+    if (!profId) {
+      window.showToast('Selecione um professor no painel admin', 'error');
+      document.getElementById('scanner-placeholder').style.display='block';
+      document.getElementById('scanner-overlay').style.display='none';
+      document.getElementById('btn-start-scan').style.display='flex';
+      document.getElementById('btn-stop-scan').style.display='none';
+      return;
+    }
 
     _scanner=new Html5Qrcode('qr-reader');
     _scanner.start({facingMode:'environment'},{fps:10,qrbox:{width:220,height:220}},
@@ -450,6 +479,14 @@
           document.getElementById('scan-result-box').textContent='❌ QR Code não reconhecido';
           return;
         }
+
+        // ── Verificação de identidade antes de tudo ─────────────────────────
+        if (!guardAllocate(profId)) {
+          document.getElementById('scan-result-box').className='scan-result error';
+          document.getElementById('scan-result-box').textContent='❌ Você não tem permissão para alocar este professor.';
+          return;
+        }
+        // ───────────────────────────────────────────────────────────────────
 
         // ── Verificação: sala ocupada por outro professor? ──────────────────
         const currentOccupant = room.profId
