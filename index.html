@@ -338,6 +338,29 @@
     const prof=window._state.professors.find(p=>p.id===profId);
     const room=window._state.rooms.find(r=>r.id===roomId);
     if (!prof||!room) { window.showToast('Não reconhecido','error'); return; }
+
+    // ── Verificação: sala já ocupada por outro professor? ──────────────────
+    const currentOccupant = room.profId
+      ? window._state.professors.find(p => p.id === room.profId)
+      : null;
+
+    if (currentOccupant && currentOccupant.id !== profId) {
+      showOccupiedModal({
+        roomName: room.name,
+        currentProfName: currentOccupant.name,
+        newProfName: prof.name,
+        onConfirm: async () => {
+          const old=window._state.rooms.find(r=>r.profId===profId);
+          if (old) await updateDoc(doc(db,'salas',old.id),{profId:null});
+          await updateDoc(doc(db,'salas',roomId),{profId:profId});
+          window.showToast(`✅ ${prof.name} → ${room.name}`,'success');
+        },
+        onCancel: () => window.showToast('Alocação cancelada','info')
+      });
+      return;
+    }
+    // ──────────────────────────────────────────────────────────────────────
+
     const old=window._state.rooms.find(r=>r.profId===profId);
     if (old) await updateDoc(doc(db,'salas',old.id),{profId:null});
     await updateDoc(doc(db,'salas',roomId),{profId:profId});
@@ -433,7 +456,6 @@
           ? window._state.professors.find(p => p.id === room.profId)
           : null;
 
-        // Se a sala está ocupada por OUTRO professor (não pelo próprio)
         if (currentOccupant && currentOccupant.id !== profId) {
           showOccupiedModal({
             roomName: room.name,
