@@ -202,48 +202,35 @@
   function renderPainel() {
     const q = (window._state.searchQuery || '').toLowerCase().trim();
     const allProfs = window._state.professors;
+    const profs = q
+      ? allProfs.filter(p => p.name.toLowerCase().includes(q) || p.subject.toLowerCase().includes(q))
+      : allProfs;
 
     const inRoom = allProfs.filter(p => getRoomOfProf(p.id));
     document.getElementById('stat-total').textContent = allProfs.length;
     document.getElementById('stat-present').textContent = inRoom.length;
     document.getElementById('stat-absent').textContent = allProfs.length - inRoom.length;
 
-    // Filtra apenas professores alocados em sala
-    const profsEmSala = inRoom;
-
-    // Aplica busca somente nos alocados
-    const profs = q
-      ? profsEmSala.filter(p => p.name.toLowerCase().includes(q) || p.subject.toLowerCase().includes(q))
-      : profsEmSala;
-
     const c = document.getElementById('painel-list');
-
     if (!allProfs.length) {
       c.innerHTML = `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg><h3>Nenhum professor cadastrado</h3><p>Um administrador precisa cadastrar os professores</p></div>`;
       return;
     }
-
-    if (q && !profs.length) {
-      c.innerHTML = `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/></svg><h3>Nenhum resultado</h3><p>Nenhum professor em sala encontrado para "<strong>${q}</strong>"</p></div>`;
-      return;
-    }
-
     if (!profs.length) {
-      c.innerHTML = `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg><h3>Nenhum professor em sala</h3><p>Quando um professor se alocar, ele aparecerá aqui.</p></div>`;
+      c.innerHTML = `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/></svg><h3>Nenhum resultado</h3><p>Nenhum professor encontrado para "<strong>${q}</strong>"</p></div>`;
       return;
     }
-
     c.innerHTML = profs.map(p => {
       const room = getRoomOfProf(p.id);
       const ago = p.updatedAt ? `<div class="prof-time">${timeAgo(p.updatedAt)}</div>` : '';
-      return `<div class="prof-card present">
+      return `<div class="prof-card ${room?'present':''}">
         <div class="prof-avatar" style="background:${window.avatarColor(p.name)}">${window.initials(p.name)}</div>
         <div class="prof-info">
           <div class="prof-name">${p.name}</div>
           <div class="prof-subject">${p.subject}</div>
           ${ago}
         </div>
-        ${room ? `<span class="prof-room">📍 ${room.name}</span>` : ''}
+        ${room ? `<span class="prof-room">📍 ${room.name}</span>` : `<div class="prof-status-dot"></div>`}
       </div>`;
     }).join('');
   }
@@ -635,102 +622,512 @@
 
     document.getElementById('scanner-placeholder').style.display='none';
     document.getElementById('scanner-overlay').style.display='flex';
+    document.getElementById('btn-start-scan').style.display='none';
+    document.getElementById('btn-stop-scan').style.display='flex';
+    document.getElementById('scan-result-box').className='scan-result';
 
-    _scanner = new Html5Qrcode('scanner-container');
-    _scannerActive = true;
+    const profId = currentProf ? currentProf.id : document.getElementById('manual-prof-select')?.value;
 
-    _scanner.start(
-      { facingMode: 'environment' },
-      { fps: 10, qrbox: { width: 220, height: 220 } },
-      async (decodedText) => {
-        if (!_scannerActive) return;
-        _scannerActive = false;
-        await _scanner.stop().catch(()=>{});
-        document.getElementById('scanner-overlay').style.display='none';
-        document.getElementById('scanner-placeholder').style.display='flex';
+    if (!profId) {
+      window.showToast('Selecione um professor no painel admin', 'error');
+      document.getElementById('scanner-placeholder').style.display='block';
+      document.getElementById('scanner-overlay').style.display='none';
+      document.getElementById('btn-start-scan').style.display='flex';
+      document.getElementById('btn-stop-scan').style.display='none';
+      return;
+    }
 
-        const room = window._state.rooms.find(r => r.id === decodedText);
+    _scanner=new Html5Qrcode('qr-reader');
+    _scanner.start({facingMode:'environment'},{fps:10,qrbox:{width:220,height:220}},
+      async (decoded) => {
+        window.stopScanner();
+        const room = window._state.rooms.find(r => r.id === decoded);
+        const prof = window._state.professors.find(p => p.id === profId) || currentProf;
+
         if (!room) {
           document.getElementById('scan-result-box').className='scan-result error';
-          document.getElementById('scan-result-box').textContent='❌ QR Code inválido ou sala não encontrada.';
+          document.getElementById('scan-result-box').textContent='❌ QR Code não reconhecido';
           return;
         }
 
-        const { isAdmin, currentProf } = window._state;
-        const profId = isAdmin
-          ? (window._state.professors[0]?.id || null)
-          : currentProf?.id;
-
-        if (!profId) {
+        if (!guardAllocate(profId)) {
           document.getElementById('scan-result-box').className='scan-result error';
-          document.getElementById('scan-result-box').textContent='❌ Nenhum professor identificado.';
+          document.getElementById('scan-result-box').textContent='❌ Você não tem permissão para alocar este professor.';
           return;
         }
 
-        const prof = window._state.professors.find(p => p.id === profId);
+        const currentOccupant = room.profId
+          ? window._state.professors.find(p => p.id === room.profId)
+          : null;
 
-        if (room.profId && room.profId !== profId) {
-          const currentOccupant = window._state.professors.find(p => p.id === room.profId);
+        if (currentOccupant && currentOccupant.id !== profId) {
           showOccupiedModal({
             roomName: room.name,
-            currentProfName: currentOccupant?.name || '?',
-            newProfName: prof?.name || '?',
+            currentProfName: currentOccupant.name,
+            newProfName: prof?.name || 'Você',
             onConfirm: () => doAllocate(db, profId, room, prof),
             onCancel: () => {
               document.getElementById('scan-result-box').className='scan-result error';
-              document.getElementById('scan-result-box').textContent='Alocação cancelada.';
+              document.getElementById('scan-result-box').textContent=`⚠️ Alocação cancelada. ${room.name} continua com ${currentOccupant.name}.`;
             }
           });
-        } else {
-          await doAllocate(db, profId, room, prof);
+          return;
         }
-      },
-      () => {}
-    ).catch(err => {
-      _scannerActive = false;
+
+        await doAllocate(db, profId, room, prof);
+      },()=>{}
+    ).then(()=>{ _scannerActive=true; })
+    .catch(()=>{
+      window.showToast('Erro ao acessar câmera','error');
+      document.getElementById('scanner-placeholder').style.display='block';
       document.getElementById('scanner-overlay').style.display='none';
-      document.getElementById('scanner-placeholder').style.display='flex';
-      window.showToast('Erro ao acessar câmera: ' + err,'error');
+      document.getElementById('btn-start-scan').style.display='flex';
+      document.getElementById('btn-stop-scan').style.display='none';
     });
   };
 
   window.stopScanner = () => {
-    if (_scanner && _scannerActive) {
-      _scannerActive = false;
-      _scanner.stop().catch(()=>{});
-    }
-    document.getElementById('scanner-overlay').style.display='none';
-    document.getElementById('scanner-placeholder').style.display='flex';
-  };
-
-  window.showToast = (msg, type='info') => {
-    const t=document.createElement('div');
-    t.className=`toast toast-${type}`;
-    t.textContent=msg;
-    document.getElementById('toast-container').appendChild(t);
-    setTimeout(()=>t.classList.add('show'),10);
-    setTimeout(()=>{ t.classList.remove('show'); setTimeout(()=>t.remove(),300); },3500);
-  };
-
-  document.addEventListener('DOMContentLoaded', () => {
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const target = btn.dataset.tab;
-        document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
-        document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
-        btn.classList.add('active');
-        document.getElementById('tab-'+target)?.classList.add('active');
-        if (target==='qrcodes') renderQRCodes();
-        if (target==='historico') renderHistorico();
-      });
-    });
-
-    const searchInput = document.getElementById('painel-search');
-    if (searchInput) {
-      searchInput.addEventListener('input', e => {
-        window._state.searchQuery = e.target.value;
-        renderPainel();
+    if (_scanner&&_scannerActive) {
+      _scanner.stop().then(()=>{
+        _scanner.clear();_scanner=null;_scannerActive=false;
+        document.getElementById('scanner-placeholder').style.display='block';
+        document.getElementById('scanner-overlay').style.display='none';
+        document.getElementById('btn-start-scan').style.display='flex';
+        document.getElementById('btn-stop-scan').style.display='none';
       });
     }
-  });
+  };
 </script>
+
+<style>
+:root,[data-theme="light"]{--bg:#f4f6fb;--surface:#fff;--surface2:#f8f9fc;--surfoff:#eef0f6;--border:rgba(0,0,0,.08);--div:#e5e7ef;--text:#1a1d2e;--muted:#6b7280;--faint:#b0b7c3;--primary:#2563eb;--primary-h:#1d4ed8;--primary-l:#dbeafe;--success:#16a34a;--success-l:#dcfce7;--error:#dc2626;--error-l:#fee2e2;--warn:#d97706;--warn-l:#fef3c7;--present:#16a34a;--absent:#9ca3af;--shadow-sm:0 1px 3px rgba(0,0,0,.07);--shadow-md:0 4px 12px rgba(0,0,0,.08);--shadow-lg:0 12px 32px rgba(0,0,0,.10);--r:.5rem;--tr:180ms cubic-bezier(.16,1,.3,1)}
+[data-theme="dark"]{--bg:#0f1117;--surface:#1a1d2e;--surface2:#1f2235;--surfoff:#252840;--border:rgba(255,255,255,.08);--div:#2a2d42;--text:#e8eaf0;--muted:#8b90a7;--faint:#4a4f6a;--primary:#3b82f6;--primary-h:#60a5fa;--primary-l:#1e3a5f;--success:#22c55e;--success-l:#14532d;--error:#ef4444;--error-l:#450a0a;--warn:#fbbf24;--warn-l:#3d2e00;--present:#22c55e;--absent:#4b5563;--shadow-sm:0 1px 3px rgba(0,0,0,.3);--shadow-md:0 4px 12px rgba(0,0,0,.4);--shadow-lg:0 12px 32px rgba(0,0,0,.5)}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-font-smoothing:antialiased}
+body{min-height:100dvh;font-family:'Inter',sans-serif;color:var(--text);background:var(--bg)}
+button{cursor:pointer;background:none;border:none;font:inherit;color:inherit}
+input,select{font:inherit;color:inherit}
+.app-header{position:sticky;top:0;z-index:100;background:var(--surface);border-bottom:1px solid var(--div);box-shadow:var(--shadow-sm);padding:0 1.25rem;display:flex;align-items:center;justify-content:space-between;height:64px;gap:.75rem}
+.app-logo{display:flex;align-items:center;gap:.625rem;text-decoration:none;flex-shrink:0}
+.logo-icon{width:36px;height:36px;border-radius:var(--r);background:var(--primary);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.logo-icon svg{color:white}
+.logo-text{display:flex;flex-direction:column;gap:.05rem}
+.logo-title{font-family:'Space Grotesk',sans-serif;font-size:1.05rem;font-weight:700;color:var(--text);line-height:1.1}
+.logo-school{font-size:.72rem;font-weight:500;color:var(--muted);line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px}
+.header-right{display:flex;align-items:center;gap:.625rem}
+.auth-info{display:flex;align-items:center;gap:.5rem}
+.user-avatar{width:28px;height:28px;border-radius:9999px;border:2px solid var(--div)}
+.user-name{font-size:.85rem;font-weight:600;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.badge-admin{font-size:.7rem;font-weight:700;padding:.15rem .5rem;border-radius:9999px;background:#fef3c7;color:#92400e;border:1px solid #fde68a}
+.badge-prof{font-size:.7rem;font-weight:700;padding:.15rem .5rem;border-radius:9999px;background:var(--primary-l);color:var(--primary)}
+.badge-visitor{font-size:.7rem;padding:.15rem .5rem;border-radius:9999px;background:var(--surfoff);color:var(--muted)}
+[data-theme="dark"] .badge-admin{background:#3d2e00;color:#fbbf24;border-color:#78450a}
+[data-theme="dark"] .badge-prof{background:#1e3a5f;color:#93c5fd}
+.btn-auth{padding:.45rem 1rem;border-radius:var(--r);font-size:.85rem;font-weight:600;background:var(--primary);color:white;transition:background var(--tr)}
+.btn-auth:hover{background:var(--primary-h)}
+.btn-icon{width:38px;height:38px;border-radius:var(--r);display:flex;align-items:center;justify-content:center;color:var(--muted);transition:background var(--tr)}
+.btn-icon:hover{background:var(--surfoff)}
+.tab-nav{position:sticky;top:64px;z-index:90;background:var(--surface);border-bottom:1px solid var(--div);display:flex;overflow-x:auto;scrollbar-width:none}
+.tab-nav::-webkit-scrollbar{display:none}
+.tab-btn{flex:1;min-width:64px;padding:.75rem .5rem;display:flex;flex-direction:column;align-items:center;gap:.25rem;font-size:.8rem;font-weight:500;color:var(--muted);border-bottom:2px solid transparent;transition:color var(--tr),border-color var(--tr)}
+.tab-btn svg{width:20px;height:20px}
+.tab-btn:hover{color:var(--text);background:var(--surfoff)}
+.tab-btn.active{color:var(--primary);border-bottom-color:var(--primary)}
+.app-main{max-width:900px;margin:0 auto;padding:1.5rem 1rem 6rem}
+.tab-panel{display:none}.tab-panel.active{display:block}
+.card{background:var(--surface);border-radius:1rem;border:1px solid var(--border);box-shadow:var(--shadow-sm);padding:1.25rem;margin-bottom:1rem}
+.card-title{font-size:.8rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:1rem}
+.stats-row{display:grid;grid-template-columns:repeat(3,1fr);gap:.75rem;margin-bottom:1rem}
+.stat-card{background:var(--surface);border-radius:1rem;border:1px solid var(--border);padding:1rem;display:flex;flex-direction:column;gap:.25rem}
+.stat-value{font-family:'Space Grotesk',sans-serif;font-size:clamp(1.5rem,1.2rem + 1.25vw,2rem);font-weight:700;line-height:1}
+.stat-label{font-size:.8rem;color:var(--muted)}
+.stat-card.present .stat-value{color:var(--present)}
+.stat-card.absent .stat-value{color:var(--absent)}
+.stat-card.total .stat-value{color:var(--primary)}
+.search-bar{display:flex;align-items:center;gap:.625rem;background:var(--surface);border:1px solid var(--div);border-radius:var(--r);padding:.5rem .875rem;margin-bottom:1rem}
+.search-bar svg{color:var(--faint);flex-shrink:0}
+.search-bar input{flex:1;background:none;border:none;outline:none;font-size:.9rem;color:var(--text)}
+.search-bar input::placeholder{color:var(--faint)}
+.prof-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:.75rem}
+.prof-card{background:var(--surface);border-radius:1rem;border:1px solid var(--border);padding:1rem;display:flex;align-items:center;gap:.75rem;position:relative;overflow:hidden}
+.prof-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--absent)}
+.prof-card.present::before{background:var(--present)}
+.prof-avatar{width:42px;height:42px;border-radius:9999px;display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:.9rem;color:white;flex-shrink:0}
+.prof-info{flex:1;min-width:0}
+.prof-name{font-weight:600;font-size:.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prof-subject{font-size:.8rem;color:var(--muted)}
+.prof-email{font-size:.75rem;color:var(--faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prof-time{font-size:.72rem;color:var(--faint);margin-top:.15rem}
+.prof-room{font-size:.75rem;font-weight:600;padding:.25rem .625rem;border-radius:9999px;background:var(--success-l);color:var(--success);white-space:nowrap}
+.prof-status-dot{width:10px;height:10px;border-radius:9999px;background:var(--absent);flex-shrink:0}
+.prof-card.present .prof-status-dot{background:var(--present)}
+.prof-ident-card{display:flex;align-items:center;gap:.75rem;padding:.875rem;background:var(--surfoff);border-radius:.75rem;margin-bottom:1rem}
+.scanner-notice{padding:1.25rem;border-radius:1rem;text-align:center;background:var(--surfoff);margin-bottom:1rem}
+.scanner-notice.warn{background:var(--error-l);color:var(--error)}
+.scanner-notice h3{font-size:.95rem;font-weight:600;margin-bottom:.35rem}
+.scanner-notice p{font-size:.85rem;color:var(--muted)}
+.scanner-notice.warn p{color:var(--error)}
+.scanner-container{background:var(--surfoff);border-radius:1rem;overflow:hidden;position:relative;aspect-ratio:1/1;max-width:340px;margin:0 auto;border:2px dashed var(--div);display:flex;align-items:center;justify-content:center}
+.scanner-placeholder{text-align:center;color:var(--muted);padding:2rem}
+.scanner-placeholder svg{width:48px;height:48px;margin:0 auto .75rem;opacity:.4}
+.scanner-overlay{position:absolute;inset:0;pointer-events:none;display:flex;align-items:center;justify-content:center}
+.scanner-frame{width:60%;aspect-ratio:1;border:3px solid var(--primary);border-radius:.75rem;box-shadow:0 0 0 9999px rgba(0,0,0,.35);animation:pulse-frame 2s ease-in-out infinite}
+@keyframes pulse-frame{0%,100%{border-color:var(--primary)}50%{border-color:var(--primary-h);box-shadow:0 0 0 9999px rgba(0,0,0,.45),0 0 20px var(--primary)}}
+.scan-result{padding:1rem;border-radius:1rem;text-align:center;margin-top:1rem;display:none}
+.scan-result.success{background:var(--success-l);color:var(--success);display:block}
+.scan-result.error{background:var(--error-l);color:var(--error);display:block}
+.form-group{margin-bottom:1rem}
+.form-label{display:block;font-size:.9rem;font-weight:500;margin-bottom:.4rem}
+.form-input{width:100%;padding:.625rem .875rem;background:var(--surface2);border:1px solid var(--div);border-radius:var(--r);font-size:.9rem;transition:border-color var(--tr)}
+.form-input:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+.form-input::placeholder{color:var(--faint)}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:.75rem}
+.form-row-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:.75rem}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:.5rem;padding:.625rem 1.25rem;border-radius:var(--r);font-size:.9rem;font-weight:600;transition:background var(--tr),transform var(--tr);white-space:nowrap}
+.btn:active{transform:scale(.97)}
+.btn-primary{background:var(--primary);color:white}
+.btn-primary:hover{background:var(--primary-h)}
+.btn-secondary{background:var(--surfoff);color:var(--text);border:1px solid var(--border)}
+.btn-secondary:hover{background:var(--div)}
+.btn-danger{background:var(--error-l);color:var(--error)}
+.btn-danger:hover{background:var(--error);color:white}
+.btn-warn{background:var(--warn-l);color:var(--warn)}
+.btn-warn:hover{background:var(--warn);color:white}
+.btn-sm{padding:.4rem .875rem;font-size:.8rem}
+.section-title{font-family:'Space Grotesk',sans-serif;font-size:clamp(1.125rem,1rem + .75vw,1.5rem);font-weight:700;letter-spacing:-.02em}
+.section-sub{font-size:.9rem;color:var(--muted);margin-top:.25rem;margin-bottom:1.25rem}
+.rooms-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:.75rem}
+.room-card{background:var(--surface);border-radius:1rem;border:1px solid var(--border);padding:1rem;display:flex;flex-direction:column;gap:.5rem}
+.room-number{font-family:'Space Grotesk',sans-serif;font-size:1.5rem;font-weight:700;color:var(--primary)}
+.room-name{font-size:.9rem;font-weight:500}
+.room-occupant{font-size:.8rem;color:var(--muted);min-height:1.2em}
+.room-actions{display:flex;gap:.5rem;margin-top:.25rem}
+.qr-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:1rem}
+.qr-card{background:var(--surface);border-radius:1rem;border:1px solid var(--border);padding:1rem;display:flex;flex-direction:column;align-items:center;gap:.75rem}
+.qr-code-wrap{background:white;padding:.625rem;border-radius:var(--r);border:1px solid var(--div)}
+.qr-room-name{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:.9rem;text-align:center}
+.empty-state{display:flex;flex-direction:column;align-items:center;text-align:center;padding:3rem 1.5rem;color:var(--muted)}
+.empty-state svg{width:48px;height:48px;margin-bottom:1rem;opacity:.35}
+.empty-state h3{font-size:1rem;font-weight:600;color:var(--text);margin-bottom:.5rem}
+.prof-manage-card{background:var(--surface);border-radius:1rem;border:1px solid var(--border);padding:1rem;display:flex;align-items:center;gap:.875rem;margin-bottom:.625rem}
+.prof-manage-actions{margin-left:auto;display:flex;gap:.5rem;flex-wrap:wrap}
+.badge{display:inline-flex;align-items:center;font-size:.75rem;font-weight:600;padding:.2rem .625rem;border-radius:9999px}
+.badge-success{background:var(--success-l);color:var(--success)}
+.badge-muted{background:var(--surfoff);color:var(--muted)}
+.select-wrapper{position:relative}
+.select-wrapper select{width:100%;appearance:none;background:var(--surface2);border:1px solid var(--div);border-radius:var(--r);padding:.75rem 2.5rem .75rem 1rem;font-size:.9rem;color:var(--text);cursor:pointer}
+.select-wrapper select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+.select-arrow{position:absolute;right:.875rem;top:50%;transform:translateY(-50%);pointer-events:none;color:var(--muted)}
+.toast-container{position:fixed;top:80px;right:1rem;z-index:999;display:flex;flex-direction:column;gap:.5rem;pointer-events:none}
+.toast{background:var(--surface);border:1px solid var(--border);border-radius:.75rem;padding:.75rem 1rem;box-shadow:var(--shadow-lg);display:flex;align-items:center;gap:.625rem;font-size:.9rem;font-weight:500;min-width:220px;max-width:320px;animation:slide-in .3s cubic-bezier(.16,1,.3,1) forwards}
+.toast.success{border-left:3px solid var(--success)}
+.toast.error{border-left:3px solid var(--error)}
+.toast.info{border-left:3px solid var(--primary)}
+@keyframes slide-in{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:translateX(0)}}
+@keyframes slide-out{from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(24px)}}
+.log-row{display:flex;align-items:center;gap:.75rem;padding:.75rem 1rem;border-bottom:1px solid var(--div);font-size:.875rem}
+.log-row:last-child{border-bottom:none}
+.log-icon{font-size:1.1rem;flex-shrink:0}
+.log-info{flex:1;display:flex;flex-direction:column;gap:.1rem}
+.log-prof{font-weight:600;color:var(--text)}
+.log-detail{font-size:.8rem;color:var(--muted)}
+.log-time{font-size:.75rem;color:var(--faint);white-space:nowrap}
+.log-entrada .log-icon{color:var(--success)}
+.log-saida .log-icon{color:var(--error)}
+.modal-backdrop{position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.45);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:1rem;opacity:0;pointer-events:none;transition:opacity .2s ease}
+.modal-backdrop.open{opacity:1;pointer-events:all}
+.modal-box{background:var(--surface);border-radius:1.25rem;border:1px solid var(--border);box-shadow:var(--shadow-lg);padding:1.5rem;max-width:380px;width:100%;transform:translateY(16px) scale(.97);transition:transform .25s cubic-bezier(.16,1,.3,1)}
+.modal-backdrop.open .modal-box{transform:translateY(0) scale(1)}
+.modal-icon{width:48px;height:48px;border-radius:9999px;display:flex;align-items:center;justify-content:center;font-size:1.5rem;margin-bottom:1rem}
+.modal-icon-danger{background:var(--error-l);color:var(--error)}
+.modal-icon-warn{background:var(--warn-l);color:var(--warn)}
+.modal-icon-info{background:var(--primary-l);color:var(--primary)}
+.modal-title{font-family:'Space Grotesk',sans-serif;font-size:1.1rem;font-weight:700;margin-bottom:.375rem}
+.modal-body{font-size:.9rem;color:var(--muted);line-height:1.55;margin-bottom:1.25rem}
+.modal-body strong{color:var(--text)}
+.modal-actions{display:flex;gap:.75rem;flex-wrap:wrap}
+.modal-actions .btn{flex:1}
+@media print{.app-header,.tab-nav,.no-print{display:none!important}.tab-panel{display:block!important}.qr-grid{grid-template-columns:repeat(3,1fr)}.qr-card{break-inside:avoid}body{background:white}}
+@media(max-width:600px){.form-row{grid-template-columns:1fr}.form-row-3{grid-template-columns:1fr}.tab-btn span{display:none}.user-name{display:none}.logo-school{display:none}} @media(max-width:400px){   .modal-backdrop{padding:.5rem}   .modal-box{padding:1rem;border-radius:.875rem}   .stats-row{grid-template-columns:1fr 1fr}   .btn-auth{font-size:.75rem;padding:.35rem .75rem}   .section-title{font-size:1.1rem} }
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <a href="#" class="app-logo" onclick="return false">
+    <div class="logo-icon">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="8" r="4"/><path d="M6 20v-1a6 6 0 0 1 12 0v1"/></svg>
+    </div>
+    <div class="logo-text">
+      <span class="logo-title">Cadê o Professor?</span>
+      <span class="logo-school">E.E. Joaquim Diégues — Viçosa/AL</span>
+    </div>
+  </a>
+  <div class="header-right">
+    <div class="auth-info" id="auth-info"></div>
+    <button class="btn-auth" id="auth-btn">🔑 Entrar</button>
+    <button class="btn-icon" id="theme-toggle" aria-label="Alternar tema">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    </button>
+  </div>
+</header>
+
+<nav class="tab-nav">
+  <button class="tab-btn active" data-tab="painel">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+    <span>Painel</span>
+  </button>
+  <button class="tab-btn" data-tab="scanner">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="7" width="3" height="3"/><rect x="14" y="7" width="3" height="3"/><rect x="14" y="14" width="3" height="3"/><rect x="7" y="14" width="3" height="3"/></svg>
+    <span>Escanear</span>
+  </button>
+  <button class="tab-btn admin-tab" data-tab="professores" style="display:none">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+    <span>Professores</span>
+  </button>
+  <button class="tab-btn admin-tab" data-tab="salas" style="display:none">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+    <span>Salas</span>
+  </button>
+  <button class="tab-btn admin-tab" data-tab="qrcodes" style="display:none">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="5" height="5" rx="1"/><rect x="16" y="3" width="5" height="5" rx="1"/><rect x="3" y="16" width="5" height="5" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/></svg>
+    <span>QR Codes</span>
+  </button>
+  <button class="tab-btn admin-tab" data-tab="historico" style="display:none">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/></svg>
+    <span>Histórico</span>
+  </button>
+</nav>
+
+<main class="app-main">
+
+  <!-- PAINEL -->
+  <section class="tab-panel active" id="tab-painel">
+    <h1 class="section-title">Painel de Localização</h1>
+    <p class="section-sub">Atualizado em tempo real 🔥</p>
+    <div class="stats-row">
+      <div class="stat-card total"><span class="stat-value" id="stat-total">—</span><span class="stat-label">Professores</span></div>
+      <div class="stat-card present"><span class="stat-value" id="stat-present">—</span><span class="stat-label">Em sala</span></div>
+      <div class="stat-card absent"><span class="stat-value" id="stat-absent">—</span><span class="stat-label">Sem sala</span></div>
+    </div>
+    <div class="search-bar">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+      <input type="text" id="search-input" placeholder="Buscar por nome ou disciplina…" autocomplete="off">
+    </div>
+    <div class="card">
+      <div class="card-title">📍 Localização dos professores</div>
+      <div id="painel-list" class="prof-grid"></div>
+    </div>
+  </section>
+
+  <!-- SCANNER -->
+  <section class="tab-panel" id="tab-scanner">
+    <h1 class="section-title">Escanear QR Code</h1>
+    <p class="section-sub">Aponte para o QR Code da sala</p>
+
+    <div id="scanner-no-login" class="scanner-notice" style="display:none">
+      <h3>🔑 Faça login para continuar</h3>
+      <p>Apenas professores cadastrados podem se alocar nas salas.</p>
+      <button class="btn btn-primary" style="margin-top:.875rem" id="btn-login-scanner">Entrar com Google</button>
+    </div>
+
+    <div id="scanner-not-prof" class="scanner-notice warn" style="display:none">
+      <h3>⛔ Acesso não autorizado</h3>
+      <p>Seu e-mail não está cadastrado como professor nesta escola. Solicite ao administrador.</p>
+    </div>
+
+    <div id="scanner-prof-panel" style="display:none">
+      <div id="scanner-prof-info"></div>
+      <div class="card">
+        <div class="scanner-container">
+          <div class="scanner-placeholder" id="scanner-placeholder">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/></svg>
+            <p style="font-size:.9rem">Inicie a câmera e aponte para o QR da sala</p>
+          </div>
+          <div id="qr-reader"></div>
+          <div class="scanner-overlay" id="scanner-overlay" style="display:none"><div class="scanner-frame"></div></div>
+        </div>
+        <div id="scan-result-box" class="scan-result"></div>
+        <div style="display:flex;gap:.75rem;margin-top:1rem">
+          <button class="btn btn-primary" id="btn-start-scan" onclick="window.startScanner()">▶ Iniciar câmera</button>
+          <button class="btn btn-secondary" id="btn-stop-scan" onclick="window.stopScanner()" style="display:none">■ Parar</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card admin-only" style="display:none">
+      <div class="card-title">🖐 Alocação Manual — Admin</div>
+      <div class="form-group">
+        <label class="form-label">Professor</label>
+        <div class="select-wrapper">
+          <select id="manual-prof-select"><option value="">— Escolha o professor —</option></select>
+          <span class="select-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></span>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Sala</label>
+        <div class="select-wrapper">
+          <select id="manual-room-select"><option value="">— Escolha a sala —</option></select>
+          <span class="select-arrow"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></span>
+        </div>
+      </div>
+      <div style="display:flex;gap:.75rem;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="window.manualAllocate()">✅ Alocar</button>
+        <button class="btn btn-secondary" onclick="window.manualDeallocate()">✖ Sair da sala</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- PROFESSORES (admin) -->
+  <section class="tab-panel" id="tab-professores">
+    <h1 class="section-title">Professores</h1>
+    <p class="section-sub">Apenas administradores</p>
+    <div class="card admin-only">
+      <div class="card-title">➕ Novo professor</div>
+      <div class="form-row-3">
+        <div class="form-group" style="margin:0"><label class="form-label">Nome completo</label><input type="text" id="prof-nome" class="form-input" placeholder="Ex: Maria Silva"></div>
+        <div class="form-group" style="margin:0"><label class="form-label">Disciplina</label><input type="text" id="prof-disciplina" class="form-input" placeholder="Ex: Matemática"></div>
+        <div class="form-group" style="margin:0"><label class="form-label">E-mail Google</label><input type="email" id="prof-email" class="form-input" placeholder="Ex: maria@gmail.com"></div>
+      </div>
+      <button class="btn btn-primary" style="margin-top:.75rem" onclick="window.addProfessor()">+ Cadastrar</button>
+    </div>
+    <div id="prof-list-manage"></div>
+  </section>
+
+  <!-- SALAS (admin) -->
+  <section class="tab-panel" id="tab-salas">
+    <h1 class="section-title">Salas de Aula</h1>
+    <p class="section-sub">Apenas administradores</p>
+    <div class="card admin-only">
+      <div class="card-title">➕ Nova sala</div>
+      <div class="form-row">
+        <div class="form-group" style="margin:0"><label class="form-label">Nome da sala</label><input type="text" id="sala-nome" class="form-input" placeholder="Ex: Sala 14"></div>
+        <div class="form-group" style="margin:0"><label class="form-label">Número / código</label><input type="text" id="sala-codigo" class="form-input" placeholder="Ex: 14"></div>
+      </div>
+      <button class="btn btn-primary" style="margin-top:.75rem" onclick="window.addSala()">+ Cadastrar sala</button>
+    </div>
+    <div id="rooms-list" class="rooms-grid"></div>
+  </section>
+
+  <!-- QR CODES (admin) -->
+  <section class="tab-panel" id="tab-qrcodes">
+    <h1 class="section-title no-print">QR Codes das Salas</h1>
+    <p class="section-sub no-print">Imprima e fixe nas portas das salas</p>
+    <div class="no-print" style="margin-bottom:1rem">
+      <button class="btn btn-primary" onclick="window.printAllQR()">🖨 Imprimir todos</button>
+    </div>
+    <div id="qr-list" class="qr-grid"></div>
+  </section>
+
+  <!-- HISTÓRICO (admin) -->
+  <section class="tab-panel" id="tab-historico">
+    <h1 class="section-title">Histórico de Movimentos</h1>
+    <p class="section-sub">Últimos 50 registros de entrada e saída</p>
+    <div class="card">
+      <div id="historico-list"><div style="text-align:center;padding:2rem;color:var(--muted)">Selecione esta aba para carregar o histórico.</div></div>
+    </div>
+  </section>
+
+</main>
+
+<!-- Modal sala ocupada -->
+<div class="modal-backdrop" id="occupied-modal" role="dialog" aria-modal="true" aria-labelledby="occupied-modal-title">
+  <div class="modal-box">
+    <div class="modal-icon modal-icon-warn">⚠️</div>
+    <h2 class="modal-title" id="occupied-modal-title">Sala ocupada!</h2>
+    <p class="modal-body">
+      <strong id="occupied-room-name"></strong> já está com
+      <strong id="occupied-current-prof"></strong>.<br><br>
+      Deseja substituir e alocar <strong id="occupied-new-prof"></strong> no lugar?
+    </p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="occupied-cancel">Cancelar</button>
+      <button class="btn btn-warn" id="occupied-confirm">Sim, substituir</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal de confirmação genérico -->
+<div class="modal-backdrop" id="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
+  <div class="modal-box">
+    <div class="modal-icon modal-icon-danger" id="confirm-modal-icon">🗑️</div>
+    <h2 class="modal-title" id="confirm-modal-title">Confirmar ação</h2>
+    <p class="modal-body" id="confirm-modal-body"></p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="confirm-modal-cancel">Cancelar</button>
+      <button class="btn btn-danger" id="confirm-modal-ok">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-container" id="toast-container"></div>
+
+<script>
+(function(){
+  const btn=document.getElementById('theme-toggle');
+  const root=document.documentElement;
+  let theme=matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';
+  root.setAttribute('data-theme',theme); setIcon(theme);
+  btn.addEventListener('click',()=>{ theme=theme==='dark'?'light':'dark'; root.setAttribute('data-theme',theme); setIcon(theme); });
+  function setIcon(t){ btn.innerHTML=t==='dark'?'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>':'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>'; }
+})();
+document.querySelectorAll('.tab-btn').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    const tab=btn.dataset.tab;
+    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-'+tab).classList.add('active');
+    if(tab==='qrcodes'&&window.renderQRCodes) window.renderQRCodes();
+    if(tab==='historico'&&window.renderHistorico) window.renderHistorico();
+  });
+});
+document.getElementById('btn-login-scanner').onclick = () => {
+  document.getElementById('auth-btn').click();
+};
+window.showToast=(msg,type='info')=>{
+  const c=document.getElementById('toast-container');
+  const t=document.createElement('div');
+  t.className='toast '+type;
+  t.innerHTML='<span>'+msg+'</span>';
+  c.appendChild(t);
+  setTimeout(()=>{ t.style.animation='slide-out .3s forwards'; setTimeout(()=>t.remove(),300); },3200);
+};
+document.getElementById('occupied-modal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) document.getElementById('occupied-cancel').click();
+});
+document.getElementById('confirm-modal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) document.getElementById('confirm-modal-cancel').click();
+});
+document.getElementById('search-input').addEventListener('input', e => {
+  window._state.searchQuery = e.target.value;
+  document.dispatchEvent(new CustomEvent('search-update'));
+});
+document.addEventListener('search-update', () => {
+  const profs = window._state.professors;
+  const query = (window._state.searchQuery||'').toLowerCase().trim();
+  const filtered = query ? profs.filter(p=>p.name.toLowerCase().includes(query)||p.subject.toLowerCase().includes(query)) : profs;
+  const allProfs = profs;
+  const c = document.getElementById('painel-list');
+  if (!allProfs.length) return;
+  if (!filtered.length) {
+    c.innerHTML = `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/></svg><h3>Nenhum resultado</h3><p>Nenhum professor encontrado para "<strong>${query}</strong>"</p></div>`;
+    return;
+  }
+  const COLORS=['#2563eb','#7c3aed','#db2777','#dc2626','#d97706','#16a34a','#0891b2','#059669','#9333ea','#c026d3','#ea580c','#65a30d'];
+  const av=n=>{let h=0;for(let c of n)h=(h*31+c.charCodeAt(0))%COLORS.length;return COLORS[Math.abs(h)];};
+  const ini=n=>n.trim().split(' ').filter(Boolean).slice(0,2).map(w=>w[0].toUpperCase()).join('');
+  const ago=ts=>{if(!ts)return'';const d=Math.floor((Date.now()-ts.toMillis())/1000);if(d<60)return'agora mesmo';if(d<3600)return`há ${Math.floor(d/60)} min`;if(d<86400)return`há ${Math.floor(d/3600)}h`;return`há ${Math.floor(d/86400)}d`;};
+  c.innerHTML = filtered.map(p=>{
+    const room=window._state.rooms.find(r=>r.profId===p.id);
+    const t=p.updatedAt?`<div class="prof-time">${ago(p.updatedAt)}</div>`:'';
+    return `<div class="prof-card ${room?'present':''}">
+      <div class="prof-avatar" style="background:${av(p.name)}">${ini(p.name)}</div>
+      <div class="prof-info"><div class="prof-name">${p.name}</div><div class="prof-subject">${p.subject}</div>${t}</div>
+      ${room?`<span class="prof-room">📍 ${room.name}</span>`:`<div class="prof-status-dot"></div>`}
+    </div>`;
+  }).join('');
+});
+</script>
+</body>
+</html>
