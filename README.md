@@ -81,7 +81,7 @@ O projeto surgiu da necessidade prática de eliminar a comunicação manual sobr
 
 ### Infraestrutura
 
-- **Deploy na nuvem**: Hospedagem via GitHub Pages
+- **Deploy na nuvem**: Hospedagem via Firebase Hosting
 - **HTTPS**: Comunicação segura e necessária para acesso à câmera
 - **Zero dependências de servidor**: Roda 100% no navegador
 
@@ -99,7 +99,7 @@ cade-o-professor/
 
 ### Acesso Online
 
-O projeto está disponível em: `https://alexandrehenriqueventura.github.io/cade-o-professor`
+O projeto está disponível em: [https://cade-o-professor.web.app/](https://cade-o-professor.web.app/)
 
 > Qualquer dispositivo com navegador moderno e câmera consegue utilizar o app.
 
