@@ -1,6 +1,6 @@
 # Cadê o Professor? 📍
 
-![HTML5](https://img.shields.io/badge/HTML5-E34F26?style=for-the-badge&logo=html5&logoColor=white) ![CSS3](https://img.shields.io/badge/CSS3-1572B6?style=for-the-badge&logo=css3&logoColor=white) ![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black) ![QR Code](https://img.shields.io/badge/QR%20Code-000000?style=for-the-badge&logo=qrcode&logoColor=white) ![PWA](https://img.shields.io/badge/PWA-5A0FC8?style=for-the-badge&logo=pwa&logoColor=white)
+![HTML5](https://img.shields.io/badge/HTML5-E34F26?style=for-the-badge&logo=html5&logoColor=white) ![CSS3](https://img.shields.io/badge/CSS3-1572B6?style=for-the-badge&logo=css3&logoColor=white) ![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black) ![QR Code](https://img.shields.io/badge/QR%20Code-000000?style=for-the-badge&logo=qrcode&logoColor=white) ![PWA](https://img.shields.io/badge/PWA-5A0FC8?style=for-the-badge&logo=pwa&logoColor=white) ![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)
 
 ## 📋 Sobre o Projeto
 
@@ -91,6 +91,7 @@ O projeto surgiu da necessidade prática de eliminar a comunicação manual sobr
 cade-o-professor/
 │
 ├── index.html           # Aplicação principal (SPA)
+├── LICENSE              # Licença AGPL-3.0
 ├── README.md            # Documentação do projeto
 └── .gitignore           # Arquivos ignorados pelo git
 ```
@@ -105,7 +106,15 @@ O projeto está disponível em: [https://cade-o-professor.web.app/](https://cade
 
 ## 📄 Licença
 
-Este projeto não possui uma licença específica definida. É uma ferramenta de gestão educacional desenvolvida para uso institucional.
+Este projeto é licenciado sob a **GNU Affero General Public License v3.0 (AGPL-3.0)**.
+
+Isso significa que qualquer pessoa ou instituição pode usar, modificar e redistribuir este software livremente, desde que:
+
+- O código-fonte das versões modificadas seja disponibilizado publicamente
+- A mesma licença AGPL-3.0 seja mantida
+- Isso se aplica inclusive a serviços web — escolas ou empresas que hospedem uma versão modificada devem disponibilizar o código-fonte
+
+Consulte o arquivo [LICENSE](./LICENSE) para o texto completo da licença.
 
 ## 📞 Contato
 
