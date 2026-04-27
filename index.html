@@ -669,19 +669,29 @@
           ? window._state.professors.find(p => p.id === room.profId)
           : null;
 
+        // Sala ocupada por outro professor
         if (currentOccupant && currentOccupant.id !== profId) {
-          showOccupiedModal({
-            roomName: room.name,
-            currentProfName: currentOccupant.name,
-            newProfName: prof?.name || 'Você',
-            onConfirm: () => doAllocate(db, profId, room, prof),
-            onCancel: () => {
-              document.getElementById('scan-result-box').className = 'scan-result error';
-              document.getElementById('scan-result-box').textContent = `⚠️ Alocação cancelada. ${room.name} continua com ${currentOccupant.name}.`;
-            }
-          });
+          // Admin pode substituir; professor comum recebe bloqueio com nome de quem está na sala
+          if (window._state.isAdmin) {
+            showOccupiedModal({
+              roomName: room.name,
+              currentProfName: currentOccupant.name,
+              newProfName: prof?.name || 'Você',
+              onConfirm: () => doAllocate(db, profId, room, prof),
+              onCancel: () => {
+                document.getElementById('scan-result-box').className = 'scan-result error';
+                document.getElementById('scan-result-box').textContent = `⚠️ Alocação cancelada. ${room.name} continua com ${currentOccupant.name}.`;
+              }
+            });
+          } else {
+            // Bloqueia professor comum — exibe nome de quem está na sala
+            const resultBox = document.getElementById('scan-result-box');
+            resultBox.className = 'scan-result error';
+            resultBox.innerHTML = `🚫 <strong>${room.name}</strong> está ocupada por <strong>${currentOccupant.name}</strong>.`;
+          }
           return;
         }
+
         await doAllocate(db, profId, room, prof);
       },
       () => {}
