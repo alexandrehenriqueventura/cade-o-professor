@@ -97,6 +97,21 @@
     document.getElementById('confirm-modal-cancel').addEventListener('click', () => { cleanup(); if (onCancel) onCancel(); }, { once: true });
   }
   window.showConfirmModal = showConfirmModal;
+
+  // ── Modal informativo de sala ocupada (apenas para professores não-admin) ──
+  function showRoomBlockedModal({ roomName, currentProfName }) {
+    const modal = document.getElementById('room-blocked-modal');
+    document.getElementById('blocked-room-name').textContent = roomName;
+    document.getElementById('blocked-current-prof').textContent = currentProfName;
+    modal.classList.add('open');
+
+    const btnClose = document.getElementById('room-blocked-close');
+    function cleanup() {
+      modal.classList.remove('open');
+      btnClose.replaceWith(btnClose.cloneNode(true));
+    }
+    document.getElementById('room-blocked-close').addEventListener('click', () => cleanup(), { once: true });
+  }
   // ──────────────────────────────────────────────────────────────────────────
 
   onAuthStateChanged(auth, async (user) => {
@@ -693,6 +708,7 @@
         // Sala ocupada por outro professor
         if (currentOccupant && currentOccupant.id !== profId) {
           if (window._state.isAdmin) {
+            // Admin: modal com opção de substituir
             showOccupiedModal({
               roomName: room.name,
               currentProfName: currentOccupant.name,
@@ -704,9 +720,11 @@
               }
             });
           } else {
-            const resultBox = document.getElementById('scan-result-box');
-            resultBox.className = 'scan-result error';
-            resultBox.innerHTML = `🚫 <strong>${room.name}</strong> está ocupada por <strong>${currentOccupant.name}</strong>.`;
+            // Professor comum: modal informativo (sem opção de substituir)
+            showRoomBlockedModal({
+              roomName: room.name,
+              currentProfName: currentOccupant.name
+            });
           }
           return;
         }
@@ -994,6 +1012,26 @@
   .modal-icon-warn { filter: none; }
   .occupied-info { background: var(--surface2); border-radius: var(--radius-sm); padding: .75rem; margin: .75rem 0; font-size: .85rem; border: 1px solid var(--border); }
 
+  /* ── Modal sala bloqueada (professor não-admin) ── */
+  .modal-blocked-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    background: var(--error-bg);
+    color: var(--error);
+    font-size: .82rem;
+    font-weight: 600;
+    padding: .4rem .9rem;
+    border-radius: 999px;
+    margin: .5rem auto .75rem;
+  }
+  .modal-blocked-prof {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--text);
+    margin-top: .25rem;
+  }
+
   /* ── Toasts ── */
   #toast-container { position: fixed; bottom: 1.25rem; right: 1rem; z-index: 300; display: flex; flex-direction: column; gap: .5rem; pointer-events: none; }
   .toast { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .65rem 1rem; font-size: .84rem; font-weight: 500; box-shadow: var(--shadow-lg); opacity: 0; transform: translateX(20px); transition: opacity .3s, transform .3s; max-width: 320px; pointer-events: auto; }
@@ -1234,7 +1272,7 @@
 
 </main>
 
-<!-- ── Modal sala ocupada ── -->
+<!-- ── Modal sala ocupada (admin: substituição) ── -->
 <div class="modal-backdrop" id="occupied-modal">
   <div class="modal-box">
     <span class="modal-icon">⚠️</span>
@@ -1246,6 +1284,25 @@
     <div class="modal-actions">
       <button class="btn btn-primary" id="occupied-confirm">Sim, substituir</button>
       <button class="btn btn-secondary" id="occupied-cancel">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Modal sala bloqueada (professor não-admin: apenas informativo) ── -->
+<div class="modal-backdrop" id="room-blocked-modal">
+  <div class="modal-box">
+    <span class="modal-icon">🚫</span>
+    <div class="modal-title">Sala ocupada</div>
+    <div class="modal-body">
+      <div style="margin-bottom:.5rem">
+        <span class="modal-blocked-badge">📍 <span id="blocked-room-name"></span></span>
+      </div>
+      Esta sala já está sendo utilizada por:<br>
+      <div class="modal-blocked-prof" id="blocked-current-prof"></div>
+      <div style="margin-top:.75rem;font-size:.82rem;">Aguarde a sala ser liberada ou procure outra disponível.</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" id="room-blocked-close">Entendido</button>
     </div>
   </div>
 </div>
