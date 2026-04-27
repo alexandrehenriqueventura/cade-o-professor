@@ -202,16 +202,12 @@
   function renderPainel() {
     const q = (window._state.searchQuery || '').toLowerCase().trim();
     const allProfs = window._state.professors;
-
-    // Apenas professores que estão alocados em alguma sala
     const allocatedProfs = allProfs.filter(p => getRoomOfProf(p.id));
-
     const inRoom = allocatedProfs;
     document.getElementById('stat-total').textContent = allProfs.length;
     document.getElementById('stat-present').textContent = inRoom.length;
     document.getElementById('stat-absent').textContent = allProfs.length - inRoom.length;
 
-    // Aplica filtro de busca somente nos alocados
     const profs = q
       ? allocatedProfs.filter(p => p.name.toLowerCase().includes(q) || p.subject.toLowerCase().includes(q))
       : allocatedProfs;
@@ -405,19 +401,15 @@
     window.showToast('Professor cadastrado!','success');
   };
 
-  // ── Exclusões com confirmação ──────────────────────────────────────────────
-
   window.removeProfessor = (id) => {
     if (!guardAdmin()) return;
     const prof = window._state.professors.find(p => p.id === id);
     if (!prof) return;
     showConfirmModal({
-      icon: '🗑️',
-      iconType: 'danger',
+      icon: '🗑️', iconType: 'danger',
       title: 'Excluir professor?',
       body: `Tem certeza que deseja excluir <strong>${prof.name}</strong>? Esta ação não pode ser desfeita.`,
-      confirmLabel: 'Sim, excluir',
-      cancelLabel: 'Cancelar',
+      confirmLabel: 'Sim, excluir', cancelLabel: 'Cancelar',
       onConfirm: async () => {
         const room = window._state.rooms.find(r => r.profId === id);
         if (room) await updateDoc(doc(db,'salas',room.id),{profId:null});
@@ -433,12 +425,10 @@
     const room = window._state.rooms.find(r => r.profId === profId);
     if (!room) { window.showToast('Professor não está em nenhuma sala','info'); return; }
     showConfirmModal({
-      icon: '🚪',
-      iconType: 'warn',
+      icon: '🚪', iconType: 'warn',
       title: 'Retirar da sala?',
       body: `Deseja retirar <strong>${prof?.name}</strong> de <strong>${room.name}</strong>?`,
-      confirmLabel: 'Sim, retirar',
-      cancelLabel: 'Cancelar',
+      confirmLabel: 'Sim, retirar', cancelLabel: 'Cancelar',
       onConfirm: async () => {
         await updateDoc(doc(db,'salas',room.id),{profId:null});
         await updateDoc(doc(db,'professores',profId),{updatedAt:serverTimestamp()});
@@ -455,12 +445,10 @@
     const room = window._state.rooms.find(r => r.profId === prof.id);
     if (!room) { window.showToast('Você não está em nenhuma sala','info'); return; }
     showConfirmModal({
-      icon: '🚪',
-      iconType: 'warn',
+      icon: '🚪', iconType: 'warn',
       title: 'Sair da sala?',
       body: `Deseja sair de <strong>${room.name}</strong>?`,
-      confirmLabel: 'Sim, sair',
-      cancelLabel: 'Cancelar',
+      confirmLabel: 'Sim, sair', cancelLabel: 'Cancelar',
       onConfirm: async () => {
         await updateDoc(doc(db,'salas',room.id),{profId:null});
         await updateDoc(doc(db,'professores',prof.id),{updatedAt:serverTimestamp()});
@@ -476,14 +464,12 @@
     if (!room) return;
     const ocupada = window._state.professors.find(p => p.id === room.profId);
     showConfirmModal({
-      icon: '🏫',
-      iconType: 'danger',
+      icon: '🏫', iconType: 'danger',
       title: 'Excluir sala?',
       body: ocupada
         ? `<strong>${room.name}</strong> está ocupada por <strong>${ocupada.name}</strong>. Excluir também removerá a alocação. Esta ação não pode ser desfeita.`
         : `Tem certeza que deseja excluir <strong>${room.name}</strong>? Esta ação não pode ser desfeita.`,
-      confirmLabel: 'Sim, excluir',
-      cancelLabel: 'Cancelar',
+      confirmLabel: 'Sim, excluir', cancelLabel: 'Cancelar',
       onConfirm: async () => {
         await deleteDoc(doc(db,'salas',id));
         window.showToast('Sala removida','info');
@@ -499,12 +485,10 @@
     const room = window._state.rooms.find(r => r.profId === profId);
     if (!room) { window.showToast(`${prof?.name} não está em nenhuma sala`,'info'); return; }
     showConfirmModal({
-      icon: '🚪',
-      iconType: 'warn',
+      icon: '🚪', iconType: 'warn',
       title: 'Retirar da sala?',
       body: `Deseja retirar <strong>${prof?.name}</strong> de <strong>${room.name}</strong>?`,
-      confirmLabel: 'Sim, retirar',
-      cancelLabel: 'Cancelar',
+      confirmLabel: 'Sim, retirar', cancelLabel: 'Cancelar',
       onConfirm: async () => {
         await updateDoc(doc(db,'salas',room.id),{profId:null});
         await updateDoc(doc(db,'professores',profId),{updatedAt:serverTimestamp()});
@@ -513,8 +497,6 @@
       }
     });
   };
-
-  // ──────────────────────────────────────────────────────────────────────────
 
   window.addSala = async () => {
     if (!guardAdmin('Apenas admins podem cadastrar salas')) return;
@@ -623,45 +605,63 @@
     document.getElementById('scan-result-box').textContent=`✅ ${prof?.name} alocado(a) na ${room.name}!`;
   }
 
-  window.startScanner = () => {
-    const { user, isAdmin, currentProf } = window._state;
-    if (!user) { window.showToast('Faça login para escanear','error'); return; }
-    if (!isAdmin && !currentProf) { window.showToast('Seu e-mail não está cadastrado como professor','error'); return; }
-    if (_scannerActive) return;
+  // ── Mensagens de erro amigáveis por tipo ───────────────────────────────────
+  function scannerErrorMsg(err) {
+    const name = err?.name || (typeof err === 'string' ? err : '');
+    if (name === 'NotAllowedError' || name === 'PermissionDeniedError')
+      return '🔒 Permissão de câmera negada. Vá em Configurações do navegador e permita o acesso à câmera para este site.';
+    if (name === 'NotFoundError' || name === 'DevicesNotFoundError')
+      return '📵 Nenhuma câmera encontrada neste dispositivo.';
+    if (name === 'NotReadableError' || name === 'TrackStartError')
+      return '📷 Câmera em uso por outro aplicativo. Feche outros apps e tente novamente.';
+    if (name === 'OverconstrainedError')
+      return '⚙️ Câmera traseira não disponível. Tentando câmera frontal…';
+    return '❌ Não foi possível acessar a câmera. Verifique as permissões e tente novamente.';
+  }
 
-    document.getElementById('scanner-placeholder').style.display='none';
-    document.getElementById('scanner-overlay').style.display='flex';
-    document.getElementById('btn-start-scan').style.display='none';
-    document.getElementById('btn-stop-scan').style.display='flex';
-    document.getElementById('scan-result-box').className='scan-result';
+  function showScanError(msg) {
+    const resultBox = document.getElementById('scan-result-box');
+    resultBox.className = 'scan-result error';
+    resultBox.innerHTML = `${msg}<br><button class="btn btn-secondary btn-sm" style="margin-top:.6rem" onclick="window.startScanner()">🔄 Tentar novamente</button>`;
+  }
 
-    const profId = currentProf ? currentProf.id : document.getElementById('manual-prof-select')?.value;
+  function resetScannerUI() {
+    document.getElementById('scanner-placeholder').style.display = 'block';
+    document.getElementById('scanner-overlay').style.display = 'none';
+    document.getElementById('btn-start-scan').style.display = 'flex';
+    document.getElementById('btn-stop-scan').style.display = 'none';
+  }
 
-    if (!profId) {
-      window.showToast('Selecione um professor no painel admin', 'error');
-      document.getElementById('scanner-placeholder').style.display='block';
-      document.getElementById('scanner-overlay').style.display='none';
-      document.getElementById('btn-start-scan').style.display='flex';
-      document.getElementById('btn-stop-scan').style.display='none';
-      return;
-    }
+  // ── Garante que o container tem dimensão antes de iniciar ──────────────────
+  function ensureScannerDimension() {
+    const overlay = document.getElementById('scanner-overlay');
+    const reader  = document.getElementById('qr-reader');
+    overlay.style.display = 'block';
+    overlay.style.width = '100%';
+    overlay.style.maxWidth = '360px';
+    overlay.style.minHeight = '270px';
+    reader.style.width = '100%';
+    reader.style.minHeight = '270px';
+  }
 
-    _scanner=new Html5Qrcode('qr-reader');
-    _scanner.start({facingMode:'environment'},{fps:10,qrbox:{width:220,height:220}},
+  async function tryStartScanner(profId, useEnvironment) {
+    const constraint = useEnvironment ? { facingMode: 'environment' } : { facingMode: 'user' };
+    _scanner = new Html5Qrcode('qr-reader');
+
+    return _scanner.start(
+      constraint,
+      { fps: 10, qrbox: { width: 220, height: 220 } },
       async (decoded) => {
         window.stopScanner();
         const room = window._state.rooms.find(r => r.id === decoded);
-        const prof = window._state.professors.find(p => p.id === profId) || currentProf;
+        const prof = window._state.professors.find(p => p.id === profId) || window._state.currentProf;
 
         if (!room) {
-          document.getElementById('scan-result-box').className='scan-result error';
-          document.getElementById('scan-result-box').textContent='❌ QR Code não reconhecido';
+          showScanError('❌ QR Code não reconhecido. Certifique-se de escanear o QR Code correto.');
           return;
         }
-
         if (!guardAllocate(profId)) {
-          document.getElementById('scan-result-box').className='scan-result error';
-          document.getElementById('scan-result-box').textContent='❌ Você não tem permissão para alocar este professor.';
+          showScanError('❌ Você não tem permissão para alocar este professor.');
           return;
         }
 
@@ -676,23 +676,62 @@
             newProfName: prof?.name || 'Você',
             onConfirm: () => doAllocate(db, profId, room, prof),
             onCancel: () => {
-              document.getElementById('scan-result-box').className='scan-result error';
-              document.getElementById('scan-result-box').textContent=`⚠️ Alocação cancelada. ${room.name} continua com ${currentOccupant.name}.`;
+              document.getElementById('scan-result-box').className = 'scan-result error';
+              document.getElementById('scan-result-box').textContent = `⚠️ Alocação cancelada. ${room.name} continua com ${currentOccupant.name}.`;
             }
           });
           return;
         }
-
         await doAllocate(db, profId, room, prof);
-      },()=>{}
-    ).then(()=>{ _scannerActive=true; })
-    .catch(()=>{
-      window.showToast('Erro ao acessar câmera','error');
-      document.getElementById('scanner-placeholder').style.display='block';
-      document.getElementById('scanner-overlay').style.display='none';
-      document.getElementById('btn-start-scan').style.display='flex';
-      document.getElementById('btn-stop-scan').style.display='none';
-    });
+      },
+      () => {}
+    );
+  }
+
+  window.startScanner = async () => {
+    const { user, isAdmin, currentProf } = window._state;
+    if (!user) { window.showToast('Faça login para escanear','error'); return; }
+    if (!isAdmin && !currentProf) { window.showToast('Seu e-mail não está cadastrado como professor','error'); return; }
+    if (_scannerActive) return;
+
+    const profId = currentProf ? currentProf.id : document.getElementById('manual-prof-select')?.value;
+    if (!profId) {
+      window.showToast('Selecione um professor no painel admin', 'error');
+      return;
+    }
+
+    // Garante dimensão antes de instanciar o scanner
+    ensureScannerDimension();
+    document.getElementById('scanner-placeholder').style.display = 'none';
+    document.getElementById('btn-start-scan').style.display = 'none';
+    document.getElementById('btn-stop-scan').style.display = 'flex';
+    document.getElementById('scan-result-box').className = 'scan-result';
+    document.getElementById('scan-result-box').textContent = '';
+
+    try {
+      await tryStartScanner(profId, true); // tenta câmera traseira primeiro
+      _scannerActive = true;
+    } catch (err) {
+      // Se câmera traseira falhou por OverconstrainedError, tenta câmera frontal
+      if (err?.name === 'OverconstrainedError' || err?.name === 'ConstraintNotSatisfiedError') {
+        window.showToast('Câmera traseira indisponível, usando câmera frontal…', 'info');
+        try {
+          if (_scanner) { try { await _scanner.stop(); } catch(_){} }
+          _scanner = null;
+          // Recria o container para evitar estado sujo do html5-qrcode
+          const reader = document.getElementById('qr-reader');
+          reader.innerHTML = '';
+          await tryStartScanner(profId, false);
+          _scannerActive = true;
+        } catch (err2) {
+          resetScannerUI();
+          showScanError(scannerErrorMsg(err2));
+        }
+      } else {
+        resetScannerUI();
+        showScanError(scannerErrorMsg(err));
+      }
+    }
   };
 
   window.stopScanner = () => {
@@ -700,10 +739,11 @@
       _scanner.stop().catch(()=>{});
       _scannerActive = false;
     }
-    document.getElementById('scanner-placeholder').style.display='block';
-    document.getElementById('scanner-overlay').style.display='none';
-    document.getElementById('btn-start-scan').style.display='flex';
-    document.getElementById('btn-stop-scan').style.display='none';
+    _scanner = null;
+    // Limpa o container do leitor para evitar estado sujo em nova tentativa
+    const reader = document.getElementById('qr-reader');
+    if (reader) reader.innerHTML = '';
+    resetScannerUI();
   };
 
   window.showToast = (msg, type='info') => {
@@ -882,10 +922,10 @@
   .scanner-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
   .scanner-header { padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); }
   .scanner-body { padding: 1.25rem; }
-  #qr-reader { border-radius: var(--radius-sm); overflow: hidden; }
+  #qr-reader { border-radius: var(--radius-sm); overflow: hidden; width: 100%; min-height: 270px; }
   .scanner-wrap { position: relative; }
   #scanner-placeholder { width: 100%; aspect-ratio: 4/3; max-width: 360px; margin: 0 auto; background: var(--surface2); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; color: var(--faint); font-size: .9rem; border: 2px dashed var(--border); }
-  #scanner-overlay { display: none; width: 100%; max-width: 360px; margin: 0 auto; position: relative; }
+  #scanner-overlay { display: none; width: 100%; max-width: 360px; min-height: 270px; margin: 0 auto; position: relative; }
   .scanner-btns { display: flex; gap: .75rem; justify-content: center; margin-top: 1rem; }
   .scan-result { min-height: 2.5rem; padding: .6rem 1rem; border-radius: var(--radius-sm); font-size: .88rem; font-weight: 500; text-align: center; background: transparent; margin-top: .75rem; }
   .scan-result.success { background: var(--success-bg); color: var(--success); }
@@ -1195,12 +1235,10 @@
 
   document.getElementById('search-input').addEventListener('input', e => {
     window._state.searchQuery = e.target.value;
-    // trigger renderPainel via state
     const ev = new CustomEvent('search-update');
     document.dispatchEvent(ev);
   });
   document.addEventListener('search-update', () => {
-    // renderPainel is called via renderAll; use a lightweight path
     const q = (window._state.searchQuery || '').toLowerCase().trim();
     const allProfs = window._state.professors;
     const allocatedProfs = allProfs.filter(p => {
