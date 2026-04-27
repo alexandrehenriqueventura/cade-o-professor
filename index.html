@@ -690,7 +690,11 @@
       async (decoded) => {
         window.stopScanner();
         const room = window._state.rooms.find(r => r.id === decoded);
-        const prof = window._state.professors.find(p => p.id === profId) || window._state.currentProf;
+
+        // Resolve o professor: usa currentProf se disponível, senão busca pelo profId
+        const prof = window._state.currentProf
+          || window._state.professors.find(p => p.id === profId)
+          || null;
 
         if (!room) {
           showScanError('❌ QR Code não reconhecido. Certifique-se de escanear o QR Code correto.');
@@ -705,7 +709,7 @@
           ? window._state.professors.find(p => p.id === room.profId)
           : null;
 
-        // Sala ocupada por outro professor
+        // ── Sala ocupada por OUTRO professor ──────────────────────────────
         if (currentOccupant && currentOccupant.id !== profId) {
           if (window._state.isAdmin) {
             // Admin: modal com opção de substituir
@@ -720,14 +724,18 @@
               }
             });
           } else {
-            // Professor comum: modal informativo (sem opção de substituir)
+            // Professor comum: modal informativo com nome do ocupante atual
             showRoomBlockedModal({
               roomName: room.name,
               currentProfName: currentOccupant.name
             });
+            document.getElementById('scan-result-box').className = 'scan-result error';
+            document.getElementById('scan-result-box').textContent =
+              `🚫 ${room.name} está ocupada por ${currentOccupant.name}.`;
           }
           return;
         }
+        // ─────────────────────────────────────────────────────────────────
 
         await doAllocate(db, profId, room, prof);
       },
