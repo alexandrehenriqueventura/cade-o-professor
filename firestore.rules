@@ -41,15 +41,17 @@ service cloud.firestore {
     // Leitura pública: alunos podem ver onde os professores estão
     // Criação/exclusão: somente admin
     // Atualização: admin tem acesso total;
-    //   usuário autenticado (professor) só pode alterar o campo profId
-    //   (para se alocar ou sair via scanner QR)
+    //   professor autenticado só pode alterar o campo profId
+    //   com seu próprio email (alocação) ou null (saída via scanner QR)
     match /salas/{salaId} {
       allow read: if true;
       allow create, delete: if isAdmin();
       allow update: if isAdmin() ||
         (isAuthenticated() &&
          request.resource.data.diff(resource.data).affectedKeys()
-           .hasOnly(['profId']));
+           .hasOnly(['profId']) &&
+         (request.resource.data.profId == request.auth.token.email ||
+          request.resource.data.profId == null));
     }
 
     // ── historico ────────────────────────────────────────────────────────
