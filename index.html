@@ -429,7 +429,6 @@
     if (!nome || !disc || !email) { window.showToast('Preencha todos os campos, incluindo o e-mail','error'); return; }
     const jaExiste = window._state.professors.find(p => p.email && p.email.toLowerCase() === email);
     if (jaExiste) { window.showToast('Este e-mail já está cadastrado','error'); return; }
-    // Usa UUID para ID do professor (consistente com salas)
     await setDoc(doc(db,'professores', uuidv4()), { name: nome, subject: disc, email: email });
     document.getElementById('prof-nome').value='';
     document.getElementById('prof-disciplina').value='';
@@ -473,6 +472,45 @@
       }
     });
   };
+
+  // ── Desalocar TODOS os professores de uma vez ──────────────────────────────
+  window.deallocateAllProfs = () => {
+    if (!guardAdmin()) return;
+    const ocupadas = window._state.rooms.filter(r => r.profId);
+    if (!ocupadas.length) {
+      window.showToast('Nenhum professor alocado no momento.', 'info');
+      return;
+    }
+    const total = ocupadas.length;
+    showConfirmModal({
+      icon: '🏫', iconType: 'danger',
+      title: 'Liberar todas as salas?',
+      body: `Isso irá retirar <strong>${total} professor${total > 1 ? 'es' : ''}</strong> das salas de uma só vez. Todos os movimentos serão registrados no histórico. Esta ação não pode ser desfeita.`,
+      confirmLabel: `Sim, liberar ${total} sala${total > 1 ? 's' : ''}`,
+      cancelLabel: 'Cancelar',
+      onConfirm: async () => {
+        const btn = document.getElementById('btn-deallocate-all');
+        if (btn) { btn.disabled = true; btn.textContent = 'Liberando…'; }
+        let count = 0;
+        for (const room of ocupadas) {
+          const prof = window._state.professors.find(p => p.id === room.profId);
+          try {
+            await updateDoc(doc(db,'salas', room.id), { profId: null });
+            if (prof) {
+              await updateDoc(doc(db,'professores', prof.id), { updatedAt: serverTimestamp() });
+              await logMovimento({ profId: prof.id, profNome: prof.name, salaId: room.id, salaNome: room.name, acao: 'saida' });
+            }
+            count++;
+          } catch(e) {
+            console.warn('Erro ao desalocar sala', room.name, e);
+          }
+        }
+        if (btn) { btn.disabled = false; btn.textContent = '🔓 Liberar todas as salas'; }
+        window.showToast(`✅ ${count} sala${count > 1 ? 's liberadas' : ' liberada'} com sucesso!`, 'success');
+      }
+    });
+  };
+  // ──────────────────────────────────────────────────────────────────────────
 
   window.selfDeallocate = () => {
     const prof = window._state.currentProf;
@@ -691,7 +729,6 @@
         window.stopScanner();
         const room = window._state.rooms.find(r => r.id === decoded);
 
-        // Resolve o professor: usa currentProf se disponível, senão busca pelo profId
         const prof = window._state.currentProf
           || window._state.professors.find(p => p.id === profId)
           || null;
@@ -709,10 +746,8 @@
           ? window._state.professors.find(p => p.id === room.profId)
           : null;
 
-        // ── Sala ocupada por OUTRO professor ──────────────────────────────
         if (currentOccupant && currentOccupant.id !== profId) {
           if (window._state.isAdmin) {
-            // Admin: modal com opção de substituir
             showOccupiedModal({
               roomName: room.name,
               currentProfName: currentOccupant.name,
@@ -724,7 +759,6 @@
               }
             });
           } else {
-            // Professor comum: modal informativo com nome do ocupante atual
             showRoomBlockedModal({
               roomName: room.name,
               currentProfName: currentOccupant.name
@@ -735,7 +769,6 @@
           }
           return;
         }
-        // ─────────────────────────────────────────────────────────────────
 
         await doAllocate(db, profId, room, prof);
       },
@@ -749,7 +782,6 @@
     if (!isAdmin && !currentProf) { window.showToast('Seu e-mail não está cadastrado como professor','error'); return; }
     if (_scannerActive) return;
 
-    // Professor logado usa seu próprio ID; admin sem vínculo usa o select da aba scanner
     let profId = currentProf ? currentProf.id : null;
     if (!profId && isAdmin) {
       profId = document.getElementById('scanner-admin-prof-select')?.value || null;
@@ -958,8 +990,11 @@
   .btn-secondary:hover { background: var(--border); }
   .btn-danger { background: var(--error-bg); color: var(--error); }
   .btn-danger:hover { background: var(--error); color: #fff; }
+  .btn-warn { background: var(--warn-bg); color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent); }
+  .btn-warn:hover { background: var(--warn); color: #fff; }
   .btn-sm { padding: .35rem .75rem; font-size: .78rem; }
   .btn-icon { padding: .5rem; border-radius: var(--radius-sm); }
+  .btn:disabled { opacity: .6; cursor: not-allowed; }
 
   /* ── Form ── */
   .form-group { margin-bottom: .75rem; }
@@ -1247,6 +1282,13 @@
     <div style="margin-top:1.5rem">
       <div class="section-header">
         <span class="section-title">👥 Professores cadastrados</span>
+        <button
+          id="btn-deallocate-all"
+          class="btn btn-warn btn-sm admin-only"
+          onclick="window.deallocateAllProfs()"
+          title="Remove todos os professores das salas de uma vez">
+          🔓 Liberar todas as salas
+        </button>
       </div>
       <div id="prof-list-manage"></div>
     </div>
