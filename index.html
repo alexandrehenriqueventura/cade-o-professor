@@ -421,7 +421,10 @@
     } catch(e) { console.warn('Erro ao salvar histórico:', e); }
   }
 
-  // ── Executa a alocação efetiva no Firestore (sem confirmação) ──────────────
+  // ── Executa a alocação efetiva no Firestore (SEM confirmação — uso interno) ─
+  // ATENÇÃO: Esta função jamais deve ser chamada diretamente pelo scanner ou
+  // qualquer trigger automático. Toda chamada deve passar por doAllocate(),
+  // que garante confirmação explícita do usuário quando necessário.
   async function _doAllocateNow(profId, room, prof) {
     const old = window._state.rooms.find(r => r.profId === profId);
     if (old) {
@@ -435,36 +438,47 @@
     document.getElementById('scan-result-box').textContent=`✅ ${prof?.name} alocado(a) na ${room.name}!`;
   }
 
-  // ── doAllocate: exige confirmação se professor já está em outra sala ────────
+  // ── doAllocate: chamada pelo scanner — NUNCA desaloca sem confirmação explícita ──
+  // Regra central: professor só sai de uma sala quando:
+  //   1. Ele mesmo clica em "Sair da sala" (selfDeallocate)
+  //   2. O coordenador o remove (deallocateProf / manualDeallocate)
+  //   3. O usuário confirma explicitamente ao escanear outra sala
   async function doAllocate(db, profId, room, prof) {
     if (!guardAllocate(profId)) return;
 
     const currentRoom = window._state.rooms.find(r => r.profId === profId);
 
-    // Se já está na mesma sala, não faz nada
+    // Já está na mesma sala — não faz nada
     if (currentRoom && currentRoom.id === room.id) {
       document.getElementById('scan-result-box').className='scan-result success';
       document.getElementById('scan-result-box').textContent=`✅ ${prof?.name} já está na ${room.name}.`;
       return;
     }
 
-    // Se está em outra sala, pede confirmação antes de mover
+    // ── Professor já está em outra sala: SEMPRE exige confirmação ──────────
+    // Isso garante que nenhum scan acidental ou automático mova o professor.
     if (currentRoom) {
       showConfirmModal({
         icon: '🔄', iconType: 'warn',
         title: 'Mudar de sala?',
-        body: `<strong>${prof?.name}</strong> já está na <strong>${currentRoom.name}</strong>.<br>Deseja mudar para <strong>${room.name}</strong>?`,
-        confirmLabel: 'Sim, mudar', cancelLabel: 'Cancelar',
+        body: `<strong>${prof?.name}</strong> já está na <strong>${currentRoom.name}</strong>.<br><br>
+               Deseja realmente mudar para <strong>${room.name}</strong>?<br>
+               <small style="color:var(--muted);margin-top:.5rem;display:block">
+                 O professor só sai de uma sala ao confirmar aqui, clicar em "Sair da sala" ou ser removido pelo coordenador.
+               </small>`,
+        confirmLabel: 'Sim, mudar de sala',
+        cancelLabel: 'Não, ficar na ' + currentRoom.name,
         onConfirm: () => _doAllocateNow(profId, room, prof),
         onCancel: () => {
           document.getElementById('scan-result-box').className = 'scan-result error';
-          document.getElementById('scan-result-box').textContent = `⚠️ Mudança cancelada. ${prof?.name} continua na ${currentRoom.name}.`;
+          document.getElementById('scan-result-box').textContent =
+            `⚠️ Mudança cancelada. ${prof?.name} continua na ${currentRoom.name}.`;
         }
       });
       return;
     }
 
-    // Sem sala anterior: aloca direto
+    // Sem sala anterior: aloca diretamente (sem confirmação necessária)
     await _doAllocateNow(profId, room, prof);
   }
   // ──────────────────────────────────────────────────────────────────────────
@@ -502,6 +516,7 @@
     });
   };
 
+  // ── deallocateProf: coordenador remove professor da sala (com confirmação) ─
   window.deallocateProf = (profId) => {
     if (!guardAdmin()) return;
     const prof = window._state.professors.find(p => p.id === profId);
@@ -560,7 +575,8 @@
   };
   // ──────────────────────────────────────────────────────────────────────────
 
-  // ── selfDeallocate: professor sai da própria sala (apenas com confirmação) ─
+  // ── selfDeallocate: ÚNICA forma do professor sair voluntariamente da sala ──
+  // Esta é uma ação explícita e intencional. Sempre exige confirmação.
   window.selfDeallocate = () => {
     const prof = window._state.currentProf;
     if (!prof) return;
@@ -570,8 +586,12 @@
     showConfirmModal({
       icon: '🚪', iconType: 'warn',
       title: 'Sair da sala?',
-      body: `Deseja sair de <strong>${room.name}</strong>?`,
-      confirmLabel: 'Sim, sair', cancelLabel: 'Cancelar',
+      body: `Deseja sair de <strong>${room.name}</strong>?<br>
+             <small style="color:var(--muted);margin-top:.5rem;display:block">
+               Você só sairá se confirmar aqui ou ser removido pelo coordenador.
+             </small>`,
+      confirmLabel: 'Sim, sair da sala',
+      cancelLabel: 'Não, continuar na sala',
       onConfirm: async () => {
         await updateDoc(doc(db,'salas',room.id),{profId:null});
         await updateDoc(doc(db,'professores',prof.id),{updatedAt:serverTimestamp()});
@@ -600,7 +620,7 @@
     });
   };
 
-  // ── manualDeallocate: coordenador retira professor da sala (com confirmação) ─
+  // ── manualDeallocate: coordenador retira professor pelo painel admin ────────
   window.manualDeallocate = () => {
     if (!guardAdmin()) return;
     const profId = document.getElementById('manual-prof-select').value;
@@ -611,7 +631,8 @@
     showConfirmModal({
       icon: '🚪', iconType: 'warn',
       title: 'Retirar da sala?',
-      body: `Deseja retirar <strong>${prof?.name}</strong> de <strong>${room.name}</strong>?<br><small style="color:var(--muted)">O professor só é removido manualmente pelo coordenador ou ao clicar em "Sair da sala".</small>`,
+      body: `Deseja retirar <strong>${prof?.name}</strong> de <strong>${room.name}</strong>?<br>
+             <small style="color:var(--muted)">O professor só é removido pelo coordenador ou ao clicar em "Sair da sala".</small>`,
       confirmLabel: 'Sim, retirar', cancelLabel: 'Cancelar',
       onConfirm: async () => {
         await updateDoc(doc(db,'salas',room.id),{profId:null});
@@ -634,7 +655,7 @@
     window.showToast('Sala cadastrada!','success');
   };
 
-  // ── manualAllocate: exige confirmação se professor já está em outra sala ────
+  // ── manualAllocate: alocação pelo painel admin — exige confirmação ao mover ─
   window.manualAllocate = async () => {
     if (!guardAdmin()) return;
     const profId=document.getElementById('manual-prof-select').value;
@@ -820,6 +841,7 @@
           ? window._state.professors.find(p => p.id === room.profId)
           : null;
 
+        // Sala ocupada por outro professor
         if (currentOccupant && currentOccupant.id !== profId) {
           if (window._state.isAdmin) {
             showOccupiedModal({
@@ -844,6 +866,7 @@
           return;
         }
 
+        // doAllocate garante confirmação se professor já está em outra sala
         await doAllocate(db, profId, room, prof);
       },
       () => {}
@@ -1190,10 +1213,10 @@
   <div class="header-brand">
     <svg class="header-logo" viewBox="0 0 36 36" fill="none" aria-label="Cadê o Professor?">
       <rect width="36" height="36" rx="10" fill="#2563eb"/>
-      <path d="M18 8C14.686 8 12 10.686 12 14s2.686 6 6 6 6-2.686 6-6-2.686-6-6-6z" fill="#fff"/>
-      <path d="M8 28c0-4.418 4.477-8 10-8s10 3.582 10 8" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
-      <circle cx="27" cy="12" r="4" fill="#fbbf24"/>
-      <path d="M27 10v4M25 12h4" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>
+      <path d="M18 8C14.686 8 12 10.686 12 14s2.686 6 6 6 6-2.686 6-6-2.686-6-6-6z" fill="white"/>
+      <path d="M6 28c0-4.418 5.373-8 12-8s12 3.582 12 8" stroke="white" stroke-width="2" stroke-linecap="round"/>
+      <circle cx="27" cy="12" r="5" fill="#fbbf24"/>
+      <path d="M27 9.5v2.5l1.5 1.5" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
     </svg>
     <div>
       <div class="header-title">Cadê o Professor?</div>
@@ -1202,325 +1225,107 @@
   </div>
   <div class="header-actions">
     <div id="auth-info"></div>
-    <button id="auth-btn" class="btn btn-primary btn-sm">🔑 Entrar</button>
-    <button id="theme-toggle" aria-label="Alternar tema" data-theme-toggle>
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    <button id="theme-toggle" aria-label="Alternar tema" onclick="toggleTheme()">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+      </svg>
     </button>
+    <button id="auth-btn" class="btn btn-primary btn-sm">🔑 Entrar</button>
   </div>
 </header>
 
 <nav class="tabs" role="tablist">
-  <button class="tab-btn active" onclick="switchTab('painel')" id="tab-painel">🏫 Painel</button>
-  <button class="tab-btn" onclick="switchTab('scanner')" id="tab-scanner">📷 Scanner</button>
-  <button class="tab-btn admin-tab" onclick="switchTab('admin')" id="tab-admin" style="display:none">⚙️ Admin</button>
-  <button class="tab-btn admin-tab" onclick="switchTab('qrcodes')" id="tab-qrcodes" style="display:none">🔲 QR Codes</button>
-  <button class="tab-btn admin-tab" onclick="switchTab('historico')" id="tab-historico" style="display:none">📋 Histórico</button>
+  <button class="tab-btn active" role="tab" onclick="switchTab('painel', this)">📋 Painel</button>
+  <button class="tab-btn" role="tab" onclick="switchTab('scanner', this)">📷 Scanner</button>
+  <button class="tab-btn admin-tab" role="tab" onclick="switchTab('admin', this)" style="display:none">⚙️ Admin</button>
+  <button class="tab-btn admin-tab" role="tab" onclick="switchTab('qrcodes', this)" style="display:none">🔲 QR Codes</button>
+  <button class="tab-btn admin-tab" role="tab" onclick="switchTab('historico', this)" style="display:none">📜 Histórico</button>
 </nav>
 
 <main class="main">
 
-  <!-- ── PAINEL ── -->
-  <section class="tab-panel active" id="panel-painel" role="tabpanel">
+  <!-- ── Painel ── -->
+  <div id="tab-painel" class="tab-panel active" role="tabpanel">
     <div class="stats-bar">
-      <div class="stat-card">
-        <span class="stat-label">Total</span>
-        <span class="stat-value" id="stat-total">—</span>
-      </div>
-      <div class="stat-card present">
-        <span class="stat-label">Em sala</span>
-        <span class="stat-value" id="stat-present">—</span>
-      </div>
-      <div class="stat-card absent">
-        <span class="stat-label">Ausentes</span>
-        <span class="stat-value" id="stat-absent">—</span>
-      </div>
+      <div class="stat-card"><div class="stat-label">Total</div><div class="stat-value" id="stat-total">0</div></div>
+      <div class="stat-card present"><div class="stat-label">Em sala</div><div class="stat-value" id="stat-present">0</div></div>
+      <div class="stat-card absent"><div class="stat-label">Sem sala</div><div class="stat-value" id="stat-absent">0</div></div>
     </div>
     <div class="search-wrap">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-      <input class="search-input" type="search" id="search-input" placeholder="Buscar professor ou disciplina…" autocomplete="off">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/></svg>
+      <input type="search" class="search-input" placeholder="Buscar professor ou disciplina…" oninput="window._state.searchQuery=this.value; renderPainel && renderPainel()">
     </div>
     <div class="painel-grid" id="painel-list"></div>
-  </section>
+  </div>
 
-  <!-- ── SCANNER ── -->
-  <section class="tab-panel" id="panel-scanner" role="tabpanel">
+  <!-- ── Scanner ── -->
+  <div id="tab-scanner" class="tab-panel" role="tabpanel">
     <div class="scanner-card">
       <div class="scanner-header">
-        <div class="section-title">📷 Escanear sala</div>
+        <h2 style="font-family:'Space Grotesk',sans-serif;font-size:1rem;font-weight:600">📷 Escanear QR Code da Sala</h2>
+        <p style="font-size:.82rem;color:var(--muted);margin-top:.25rem">Aponte a câmera para o QR Code fixado na porta da sala</p>
       </div>
       <div class="scanner-body">
+
+        <!-- Não logado -->
         <div id="scanner-no-login" style="display:none">
           <div class="empty-state">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-            <h3>Faça login para continuar</h3>
-            <p>Use sua conta Google para se identificar.</p>
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <h3>Faça login para escanear</h3>
+            <p>Entre com sua conta Google para registrar sua presença na sala.</p>
           </div>
         </div>
+
+        <!-- Logado mas não professor -->
         <div id="scanner-not-prof" style="display:none">
           <div class="empty-state">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
             <h3>E-mail não cadastrado</h3>
-            <p>Seu e-mail não está na lista de professores. Peça ao administrador para cadastrá-lo.</p>
+            <p>Seu e-mail não está cadastrado como professor. Fale com a coordenação.</p>
           </div>
         </div>
+
+        <!-- Painel do professor / admin -->
         <div id="scanner-prof-panel" style="display:none">
           <div id="scanner-prof-info"></div>
 
-          <!-- Seletor visível apenas para admins sem vínculo de professor -->
+          <!-- Select de professor (só para admin sem vínculo de professor) -->
           <div id="scanner-admin-prof-wrap" class="scanner-admin-select-wrap" style="display:none">
-            <label class="form-label">👤 Alocar como:</label>
-            <select class="form-select" id="scanner-admin-prof-select">
+            <label class="form-label">👤 Alocar como professor:</label>
+            <select id="scanner-admin-prof-select" class="form-select">
               <option value="">— Escolha o professor a alocar —</option>
             </select>
           </div>
 
           <div class="scanner-wrap">
-            <div id="scanner-placeholder">Câmera inativa</div>
-            <div id="scanner-overlay">
-              <div id="qr-reader"></div>
-            </div>
+            <div id="scanner-placeholder">📷 Câmera desativada</div>
+            <div id="scanner-overlay"><div id="qr-reader"></div></div>
           </div>
+
           <div class="scanner-btns">
-            <button class="btn btn-primary" id="btn-start-scan" onclick="window.startScanner()">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="9" y="9" width="6" height="6"/></svg>
-              Escanear QR Code
+            <button id="btn-start-scan" class="btn btn-primary" onclick="window.startScanner()">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="3"/><path d="M7 7h3v3H7zM14 7h3v3h-3zM7 14h3v3H7zM14 14h1M17 14v1M14 17h3v1"/></svg>
+              Iniciar Scanner
             </button>
-            <button class="btn btn-secondary" id="btn-stop-scan" onclick="window.stopScanner()" style="display:none">
-              ✕ Parar scanner
+            <button id="btn-stop-scan" class="btn btn-secondary" onclick="window.stopScanner()" style="display:none">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+              Parar Scanner
             </button>
           </div>
-          <div class="scan-result" id="scan-result-box"></div>
+          <div id="scan-result-box" class="scan-result"></div>
         </div>
+
       </div>
-    </div>
-  </section>
-
-  <!-- ── ADMIN ── -->
-  <section class="tab-panel admin-only" id="panel-admin" role="tabpanel">
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(340px,100%),1fr));gap:1rem">
-
-      <!-- Cadastro professor -->
-      <div class="card">
-        <div class="card-title">➕ Cadastrar professor</div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Nome completo</label>
-            <input class="form-input" id="prof-nome" placeholder="Ex.: Maria Silva" autocomplete="off">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Disciplina</label>
-            <input class="form-input" id="prof-disciplina" placeholder="Ex.: Matemática" autocomplete="off">
-          </div>
-        </div>
-        <div class="form-group">
-          <label class="form-label">E-mail Google</label>
-          <input class="form-input" id="prof-email" type="email" placeholder="professor@gmail.com" autocomplete="off">
-        </div>
-        <button class="btn btn-primary" onclick="window.addProfessor()">Cadastrar</button>
-      </div>
-
-      <!-- Cadastro sala -->
-      <div class="card">
-        <div class="card-title">🏫 Cadastrar sala</div>
-        <div class="form-group">
-          <label class="form-label">Nome da sala</label>
-          <input class="form-input" id="sala-nome" placeholder="Ex.: Sala 14" autocomplete="off">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Código (opcional)</label>
-          <input class="form-input" id="sala-codigo" placeholder="Ex.: 14" autocomplete="off">
-        </div>
-        <button class="btn btn-primary" onclick="window.addSala()">Cadastrar</button>
-      </div>
-
-      <!-- Alocação manual -->
-      <div class="card">
-        <div class="card-title">📌 Alocação manual</div>
-        <div class="form-group">
-          <label class="form-label">Professor</label>
-          <select class="form-select" id="manual-prof-select"><option value="">— Escolha o professor —</option></select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Sala</label>
-          <select class="form-select" id="manual-room-select"><option value="">— Escolha a sala —</option></select>
-        </div>
-        <div style="display:flex;gap:.5rem;flex-wrap:wrap">
-          <button class="btn btn-primary" onclick="window.manualAllocate()">Alocar</button>
-          <button class="btn btn-secondary" onclick="window.manualDeallocate()">Retirar da sala</button>
-        </div>
-      </div>
-
-    </div>
-
-    <!-- Lista professores -->
-    <div style="margin-top:1.5rem">
-      <div class="section-header">
-        <span class="section-title">👥 Professores cadastrados</span>
-        <button
-          id="btn-deallocate-all"
-          class="btn btn-warn btn-sm admin-only"
-          onclick="window.deallocateAllProfs()"
-          title="Remove todos os professores das salas de uma vez">
-          🔓 Liberar todas as salas
-        </button>
-      </div>
-      <div id="prof-list-manage"></div>
-    </div>
-
-    <!-- Lista salas -->
-    <div style="margin-top:1.5rem">
-      <div class="section-header">
-        <span class="section-title">🏫 Salas cadastradas</span>
-      </div>
-      <div id="rooms-list"></div>
-    </div>
-  </section>
-
-  <!-- ── QR CODES ── -->
-  <section class="tab-panel admin-only" id="panel-qrcodes" role="tabpanel">
-    <div class="section-header">
-      <span class="section-title">🔲 QR Codes das salas</span>
-      <button class="btn btn-secondary btn-sm no-print" onclick="window.printAllQR()">🖨️ Imprimir todos</button>
-    </div>
-    <div class="qr-grid" id="qr-list"></div>
-  </section>
-
-  <!-- ── HISTÓRICO ── -->
-  <section class="tab-panel admin-only" id="panel-historico" role="tabpanel">
-    <div class="section-header">
-      <span class="section-title">📋 Histórico de movimentos</span>
-      <span style="font-size:.75rem;color:var(--success);font-weight:600">● ao vivo</span>
-    </div>
-    <div id="historico-list"></div>
-  </section>
-
-</main>
-
-<!-- ── Modal sala ocupada (admin: substituição) ── -->
-<div class="modal-backdrop" id="occupied-modal">
-  <div class="modal-box">
-    <span class="modal-icon">⚠️</span>
-    <div class="modal-title">Sala ocupada</div>
-    <div class="modal-body">
-      <strong id="occupied-room-name"></strong> já está com <strong id="occupied-current-prof"></strong>.<br>
-      Deseja substituir por <strong id="occupied-new-prof"></strong>?
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-primary" id="occupied-confirm">Sim, substituir</button>
-      <button class="btn btn-secondary" id="occupied-cancel">Cancelar</button>
     </div>
   </div>
-</div>
 
-<!-- ── Modal sala bloqueada (professor não-admin: apenas informativo) ── -->
-<div class="modal-backdrop" id="room-blocked-modal">
-  <div class="modal-box">
-    <span class="modal-icon">🚫</span>
-    <div class="modal-title">Sala ocupada</div>
-    <div class="modal-body">
-      <div style="margin-bottom:.5rem">
-        <span class="modal-blocked-badge">📍 <span id="blocked-room-name"></span></span>
-      </div>
-      Esta sala já está sendo utilizada por:<br>
-      <div class="modal-blocked-prof" id="blocked-current-prof"></div>
-      <div style="margin-top:.75rem;font-size:.82rem;">Aguarde a sala ser liberada ou procure outra disponível.</div>
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-primary" id="room-blocked-close">Entendido</button>
-    </div>
-  </div>
-</div>
+  <!-- ── Admin ── -->
+  <div id="tab-admin" class="tab-panel admin-only" role="tabpanel">
 
-<!-- ── Modal confirmação genérico ── -->
-<div class="modal-backdrop" id="confirm-modal">
-  <div class="modal-box">
-    <span class="modal-icon" id="confirm-modal-icon">🗑️</span>
-    <div class="modal-title" id="confirm-modal-title">Confirmar ação</div>
-    <div class="modal-body" id="confirm-modal-body"></div>
-    <div class="modal-actions">
-      <button class="btn btn-danger" id="confirm-modal-ok">Confirmar</button>
-      <button class="btn btn-secondary" id="confirm-modal-cancel">Cancelar</button>
-    </div>
-  </div>
-</div>
-
-<div id="toast-container"></div>
-
-<script>
-  function switchTab(id) {
-    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    document.getElementById('panel-' + id)?.classList.add('active');
-    document.getElementById('tab-' + id)?.classList.add('active');
-    if (id === 'qrcodes') window.renderQRCodes?.();
-  }
-
-  document.getElementById('search-input').addEventListener('input', e => {
-    window._state.searchQuery = e.target.value;
-    const ev = new CustomEvent('search-update');
-    document.dispatchEvent(ev);
-  });
-  document.addEventListener('search-update', () => {
-    const q = (window._state.searchQuery || '').toLowerCase().trim();
-    const allProfs = window._state.professors;
-    const allocatedProfs = allProfs.filter(p => {
-      const room = window._state.rooms.find(r => r.profId === p.id);
-      return !!room;
-    });
-    const profs = q
-      ? allocatedProfs.filter(p => p.name.toLowerCase().includes(q) || p.subject.toLowerCase().includes(q))
-      : allocatedProfs;
-    const c = document.getElementById('painel-list');
-    if (!profs.length && q) {
-      c.innerHTML = `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/></svg><h3>Nenhum resultado</h3><p>Nenhum professor alocado encontrado para "<strong>${q}</strong>"</p></div>`;
-      return;
-    }
-    if (!profs.length) {
-      c.innerHTML = `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg><h3>Nenhum professor em sala</h3><p>Quando um professor escanear o QR Code de uma sala, ele aparecerá aqui.</p></div>`;
-      return;
-    }
-    function timeAgo(ts) {
-      if (!ts) return '';
-      const diff = Math.floor((Date.now() - ts.toMillis()) / 1000);
-      if (diff < 60) return 'agora mesmo';
-      if (diff < 3600) return `há ${Math.floor(diff/60)} min`;
-      if (diff < 86400) return `há ${Math.floor(diff/3600)}h`;
-      return `há ${Math.floor(diff/86400)}d`;
-    }
-    c.innerHTML = profs.map(p => {
-      const room = window._state.rooms.find(r => r.profId === p.id);
-      const ago = p.updatedAt ? `<div class="prof-time">${timeAgo(p.updatedAt)}</div>` : '';
-      return `<div class="prof-card present">
-        <div class="prof-avatar" style="background:${window.avatarColor(p.name)}">${window.initials(p.name)}</div>
-        <div class="prof-info">
-          <div class="prof-name">${p.name}</div>
-          <div class="prof-subject">${p.subject}</div>
-          ${ago}
-        </div>
-        <span class="prof-room">📍 ${room.name}</span>
-      </div>`;
-    }).join('');
-  });
-
-  // ── Theme toggle ──
-  (function(){
-    const t = document.getElementById('theme-toggle');
-    const r = document.documentElement;
-    let d = localStorage.getItem('theme') || (matchMedia('(prefers-color-scheme:dark)').matches ? 'dark' : 'light');
-    r.setAttribute('data-theme', d);
-    updateIcon(d);
-    t.addEventListener('click', () => {
-      d = d === 'dark' ? 'light' : 'dark';
-      r.setAttribute('data-theme', d);
-      try { localStorage.setItem('theme', d); } catch(e) {}
-      updateIcon(d);
-    });
-    function updateIcon(theme) {
-      t.innerHTML = theme === 'dark'
-        ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>'
-        : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
-    }
-  })();
-</script>
-</body>
-</html>
+    <!-- Cadastrar professor -->
+    <div class="card">
+      <div class="card-title">➕ Cadastrar Professor</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Nome completo</label>
+          <input id="prof
