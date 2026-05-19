@@ -421,6 +421,54 @@
     } catch(e) { console.warn('Erro ao salvar histórico:', e); }
   }
 
+  // ── Executa a alocação efetiva no Firestore (sem confirmação) ──────────────
+  async function _doAllocateNow(profId, room, prof) {
+    const old = window._state.rooms.find(r => r.profId === profId);
+    if (old) {
+      await updateDoc(doc(db,'salas',old.id),{profId:null});
+      await logMovimento({ profId, profNome: prof?.name||'?', salaId: old.id, salaNome: old.name, acao: 'saida' });
+    }
+    await updateDoc(doc(db,'salas',room.id),{profId:profId});
+    await updateDoc(doc(db,'professores',profId),{updatedAt:serverTimestamp()});
+    await logMovimento({ profId, profNome: prof?.name||'?', salaId: room.id, salaNome: room.name, acao: 'entrada' });
+    document.getElementById('scan-result-box').className='scan-result success';
+    document.getElementById('scan-result-box').textContent=`✅ ${prof?.name} alocado(a) na ${room.name}!`;
+  }
+
+  // ── doAllocate: exige confirmação se professor já está em outra sala ────────
+  async function doAllocate(db, profId, room, prof) {
+    if (!guardAllocate(profId)) return;
+
+    const currentRoom = window._state.rooms.find(r => r.profId === profId);
+
+    // Se já está na mesma sala, não faz nada
+    if (currentRoom && currentRoom.id === room.id) {
+      document.getElementById('scan-result-box').className='scan-result success';
+      document.getElementById('scan-result-box').textContent=`✅ ${prof?.name} já está na ${room.name}.`;
+      return;
+    }
+
+    // Se está em outra sala, pede confirmação antes de mover
+    if (currentRoom) {
+      showConfirmModal({
+        icon: '🔄', iconType: 'warn',
+        title: 'Mudar de sala?',
+        body: `<strong>${prof?.name}</strong> já está na <strong>${currentRoom.name}</strong>.<br>Deseja mudar para <strong>${room.name}</strong>?`,
+        confirmLabel: 'Sim, mudar', cancelLabel: 'Cancelar',
+        onConfirm: () => _doAllocateNow(profId, room, prof),
+        onCancel: () => {
+          document.getElementById('scan-result-box').className = 'scan-result error';
+          document.getElementById('scan-result-box').textContent = `⚠️ Mudança cancelada. ${prof?.name} continua na ${currentRoom.name}.`;
+        }
+      });
+      return;
+    }
+
+    // Sem sala anterior: aloca direto
+    await _doAllocateNow(profId, room, prof);
+  }
+  // ──────────────────────────────────────────────────────────────────────────
+
   window.addProfessor = async () => {
     if (!guardAdmin('Apenas admins podem cadastrar professores')) return;
     const nome  = document.getElementById('prof-nome').value.trim();
@@ -512,6 +560,7 @@
   };
   // ──────────────────────────────────────────────────────────────────────────
 
+  // ── selfDeallocate: professor sai da própria sala (apenas com confirmação) ─
   window.selfDeallocate = () => {
     const prof = window._state.currentProf;
     if (!prof) return;
@@ -551,6 +600,7 @@
     });
   };
 
+  // ── manualDeallocate: coordenador retira professor da sala (com confirmação) ─
   window.manualDeallocate = () => {
     if (!guardAdmin()) return;
     const profId = document.getElementById('manual-prof-select').value;
@@ -561,7 +611,7 @@
     showConfirmModal({
       icon: '🚪', iconType: 'warn',
       title: 'Retirar da sala?',
-      body: `Deseja retirar <strong>${prof?.name}</strong> de <strong>${room.name}</strong>?`,
+      body: `Deseja retirar <strong>${prof?.name}</strong> de <strong>${room.name}</strong>?<br><small style="color:var(--muted)">O professor só é removido manualmente pelo coordenador ou ao clicar em "Sair da sala".</small>`,
       confirmLabel: 'Sim, retirar', cancelLabel: 'Cancelar',
       onConfirm: async () => {
         await updateDoc(doc(db,'salas',room.id),{profId:null});
@@ -584,6 +634,7 @@
     window.showToast('Sala cadastrada!','success');
   };
 
+  // ── manualAllocate: exige confirmação se professor já está em outra sala ────
   window.manualAllocate = async () => {
     if (!guardAdmin()) return;
     const profId=document.getElementById('manual-prof-select').value;
@@ -593,40 +644,77 @@
     const room=window._state.rooms.find(r=>r.id===roomId);
     if (!prof||!room) { window.showToast('Não reconhecido','error'); return; }
 
-    const currentOccupant = room.profId
+    // Sala já ocupada por outro professor?
+    const currentOccupant = room.profId && room.profId !== profId
       ? window._state.professors.find(p => p.id === room.profId)
       : null;
 
-    if (currentOccupant && currentOccupant.id !== profId) {
-      showOccupiedModal({
-        roomName: room.name,
-        currentProfName: currentOccupant.name,
-        newProfName: prof.name,
-        onConfirm: async () => {
-          const old=window._state.rooms.find(r=>r.profId===profId);
-          if (old) {
-            await updateDoc(doc(db,'salas',old.id),{profId:null});
-            await logMovimento({ profId, profNome: prof.name, salaId: old.id, salaNome: old.name, acao: 'saida' });
-          }
-          await updateDoc(doc(db,'salas',room.id),{profId:profId});
-          await updateDoc(doc(db,'professores',profId),{updatedAt:serverTimestamp()});
-          await logMovimento({ profId, profNome: prof.name, salaId: room.id, salaNome: room.name, acao: 'entrada' });
-          window.showToast(`✅ ${prof.name} → ${room.name}`,'success');
-        },
+    // Professor já está em outra sala?
+    const profCurrentRoom = window._state.rooms.find(r => r.profId === profId);
+
+    // Se já está na mesma sala selecionada, avisa e sai
+    if (profCurrentRoom && profCurrentRoom.id === roomId) {
+      window.showToast(`${prof.name} já está na ${room.name}`, 'info');
+      return;
+    }
+
+    const _executeAllocation = async () => {
+      if (currentOccupant) {
+        // Registra saída do ocupante atual
+        await updateDoc(doc(db,'professores',currentOccupant.id),{updatedAt:serverTimestamp()});
+        await logMovimento({ profId: currentOccupant.id, profNome: currentOccupant.name, salaId: room.id, salaNome: room.name, acao: 'saida' });
+      }
+      if (profCurrentRoom) {
+        // Registra saída da sala anterior do professor
+        await updateDoc(doc(db,'salas',profCurrentRoom.id),{profId:null});
+        await logMovimento({ profId, profNome: prof.name, salaId: profCurrentRoom.id, salaNome: profCurrentRoom.name, acao: 'saida' });
+      }
+      await updateDoc(doc(db,'salas',room.id),{profId:profId});
+      await updateDoc(doc(db,'professores',profId),{updatedAt:serverTimestamp()});
+      await logMovimento({ profId, profNome: prof.name, salaId: room.id, salaNome: room.name, acao: 'entrada' });
+      window.showToast(`✅ ${prof.name} → ${room.name}`,'success');
+    };
+
+    // Caso 1: Sala ocupada por outro E professor já está em outra sala
+    if (currentOccupant && profCurrentRoom) {
+      showConfirmModal({
+        icon: '🔄', iconType: 'warn',
+        title: 'Confirmar realocação?',
+        body: `<strong>${prof.name}</strong> está na <strong>${profCurrentRoom.name}</strong> e será movido para <strong>${room.name}</strong>, que está com <strong>${currentOccupant.name}</strong>.<br>Deseja continuar?`,
+        confirmLabel: 'Sim, realocar', cancelLabel: 'Cancelar',
+        onConfirm: _executeAllocation,
         onCancel: () => window.showToast('Alocação cancelada','info')
       });
       return;
     }
 
-    const old=window._state.rooms.find(r=>r.profId===profId);
-    if (old) {
-      await updateDoc(doc(db,'salas',old.id),{profId:null});
-      await logMovimento({ profId, profNome: prof.name, salaId: old.id, salaNome: old.name, acao: 'saida' });
+    // Caso 2: Só sala ocupada por outro
+    if (currentOccupant) {
+      showOccupiedModal({
+        roomName: room.name,
+        currentProfName: currentOccupant.name,
+        newProfName: prof.name,
+        onConfirm: _executeAllocation,
+        onCancel: () => window.showToast('Alocação cancelada','info')
+      });
+      return;
     }
-    await updateDoc(doc(db,'salas',roomId),{profId:profId});
-    await updateDoc(doc(db,'professores',profId),{updatedAt:serverTimestamp()});
-    await logMovimento({ profId, profNome: prof.name, salaId: room.id, salaNome: room.name, acao: 'entrada' });
-    window.showToast(`✅ ${prof.name} → ${room.name}`,'success');
+
+    // Caso 3: Professor já está em outra sala (precisa confirmar a mudança)
+    if (profCurrentRoom) {
+      showConfirmModal({
+        icon: '🔄', iconType: 'warn',
+        title: 'Mudar de sala?',
+        body: `<strong>${prof.name}</strong> já está na <strong>${profCurrentRoom.name}</strong>.<br>Deseja mudar para <strong>${room.name}</strong>?`,
+        confirmLabel: 'Sim, mudar', cancelLabel: 'Cancelar',
+        onConfirm: _executeAllocation,
+        onCancel: () => window.showToast('Alocação cancelada','info')
+      });
+      return;
+    }
+
+    // Caso 4: Livre — aloca direto
+    await _executeAllocation();
   };
 
   window.downloadQR = (roomId, roomName) => {
@@ -663,20 +751,6 @@
 
     document.getElementById('occupied-confirm').addEventListener('click', () => { cleanup(); onConfirm(); }, { once: true });
     document.getElementById('occupied-cancel').addEventListener('click',  () => { cleanup(); onCancel();  }, { once: true });
-  }
-
-  async function doAllocate(db, profId, room, prof) {
-    if (!guardAllocate(profId)) return;
-    const old = window._state.rooms.find(r => r.profId === profId);
-    if (old) {
-      await updateDoc(doc(db,'salas',old.id),{profId:null});
-      await logMovimento({ profId, profNome: prof?.name||'?', salaId: old.id, salaNome: old.name, acao: 'saida' });
-    }
-    await updateDoc(doc(db,'salas',room.id),{profId:profId});
-    await updateDoc(doc(db,'professores',profId),{updatedAt:serverTimestamp()});
-    await logMovimento({ profId, profNome: prof?.name||'?', salaId: room.id, salaNome: room.name, acao: 'entrada' });
-    document.getElementById('scan-result-box').className='scan-result success';
-    document.getElementById('scan-result-box').textContent=`✅ ${prof?.name} alocado(a) na ${room.name}!`;
   }
 
   // ── Mensagens de erro amigáveis por tipo ───────────────────────────────────
