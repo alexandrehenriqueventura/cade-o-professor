@@ -6,9 +6,16 @@
 <title>Cadê o Professor? — E.E. Joaquim Diégues</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#2563eb">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Cadê o Prof">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<link rel="icon" type="image/png" href="/icons/icon-192.png">
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js";
@@ -17,7 +24,7 @@
     onSnapshot, getDocs, updateDoc, getDoc, addDoc, serverTimestamp, query, orderBy, limit
   } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-firestore.js";
   import {
-    getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged
+      getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged
   } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-auth.js";
 
   const firebaseConfig = {
@@ -156,10 +163,17 @@
         ${badge}`;
     } else {
       btn.textContent = '🔑 Entrar';
-      btn.onclick = () => signInWithPopup(auth, provider).catch(e => {
-        if (e.code !== 'auth/popup-closed-by-user') {
-          window.showToast('Erro ao fazer login: ' + e.message, 'error');
-        }
+          btn.onclick = () => {
+                const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+                  if (isMobile) {
+                  signInWithRedirect(auth, provider);
+                            } else {
+                              signInWithPopup(auth, provider).catch(e => {
+                                            if (e.code !== 'auth/popup-closed-by-user') {
+                                                            window.showToast('Erro ao fazer login: ' + e.message, 'error');
+                                                          }
+                                          });
+                            }
       });
       info.innerHTML = '';
     }
@@ -1005,7 +1019,7 @@
   }
   .header-brand { display: flex; align-items: center; gap: .6rem; }
   .header-logo { width: 36px; height: 36px; }
-  .header-title { font-family: 'Space Grotesk', sans-serif; font-size: 1.1rem; font-weight: 700; color: var(--text); line-height: 1.2; }
+  .header-title { font-family: 'Inter', sans-serif; font-size: 1.1rem; font-weight: 700; color: var(--text); line-height: 1.2; }
   .header-subtitle { font-size: .72rem; color: var(--muted); font-weight: 400; }
   .header-actions { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
   #auth-info { display: flex; align-items: center; gap: .4rem; font-size: .82rem; }
@@ -1030,7 +1044,7 @@
   .stats-bar { display: flex; gap: .75rem; margin-bottom: 1.25rem; flex-wrap: wrap; }
   .stat-card { flex: 1; min-width: 100px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .75rem 1rem; display: flex; flex-direction: column; gap: .2rem; }
   .stat-label { font-size: .72rem; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: .04em; }
-  .stat-value { font-size: 1.6rem; font-weight: 700; font-family: 'Space Grotesk', sans-serif; color: var(--text); line-height: 1; }
+  .stat-value { font-size: 1.6rem; font-weight: 700; font-family: 'Inter', sans-serif; color: var(--text); line-height: 1; }
   .stat-card.present .stat-value { color: var(--success); }
   .stat-card.absent .stat-value { color: var(--muted); }
 
@@ -1062,14 +1076,14 @@
 
   /* ── Section header ── */
   .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; gap: .5rem; flex-wrap: wrap; }
-  .section-title { font-family: 'Space Grotesk', sans-serif; font-size: 1rem; font-weight: 600; }
+  .section-title { font-family: 'Inter', sans-serif; font-size: 1rem; font-weight: 600; }
 
   /* ── Cards (admin manage) ── */
   .prof-manage-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .875rem 1rem; display: flex; align-items: center; gap: .75rem; margin-bottom: .5rem; flex-wrap: wrap; }
   .prof-email { font-size: .75rem; color: var(--faint); }
   .prof-manage-actions { display: flex; gap: .4rem; margin-left: auto; flex-shrink: 0; }
   .room-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .875rem 1rem; display: flex; align-items: center; gap: .75rem; margin-bottom: .5rem; flex-wrap: wrap; }
-  .room-number { font-size: 1.1rem; font-weight: 700; font-family: 'Space Grotesk', sans-serif; color: var(--primary); min-width: 2rem; }
+  .room-number { font-size: 1.1rem; font-weight: 700; font-family: 'Inter', sans-serif; color: var(--primary); min-width: 2rem; }
   .room-name { flex: 1; font-weight: 500; }
   .room-occupant { font-size: .8rem; color: var(--muted); }
   .room-actions { margin-left: auto; }
@@ -1103,7 +1117,7 @@
 
   /* ── Card container ── */
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; margin-bottom: 1rem; }
-  .card-title { font-family: 'Space Grotesk', sans-serif; font-weight: 600; margin-bottom: 1rem; font-size: .95rem; color: var(--text); }
+  .card-title { font-family: 'Inter', sans-serif; font-weight: 600; margin-bottom: 1rem; font-size: .95rem; color: var(--text); }
 
   /* ── Scanner ── */
   .scanner-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
@@ -1145,7 +1159,7 @@
   .modal-box { background: var(--surface); border-radius: var(--radius); padding: 1.5rem; max-width: 420px; width: 100%; box-shadow: var(--shadow-lg); animation: modalIn .2s ease; }
   @keyframes modalIn { from { opacity:0; transform:scale(.95) translateY(8px); } to { opacity:1; transform:none; } }
   .modal-icon { font-size: 2rem; display: block; text-align: center; margin-bottom: .75rem; }
-  .modal-title { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 1.1rem; text-align: center; margin-bottom: .5rem; }
+  .modal-title { font-family: 'Inter', sans-serif; font-weight: 700; font-size: 1.1rem; text-align: center; margin-bottom: .5rem; }
   .modal-body { font-size: .88rem; color: var(--muted); text-align: center; margin-bottom: 1.25rem; line-height: 1.6; }
   .modal-actions { display: flex; gap: .75rem; justify-content: center; flex-wrap: wrap; }
   .modal-icon-danger { filter: none; }
@@ -1262,7 +1276,7 @@
   <div id="tab-scanner" class="tab-panel" role="tabpanel">
     <div class="scanner-card">
       <div class="scanner-header">
-        <h2 style="font-family:'Space Grotesk',sans-serif;font-size:1rem;font-weight:600">📷 Escanear QR Code da Sala</h2>
+        <h2 style="font-family:'Inter',sans-serif;font-size:1rem;font-weight:600">📷 Escanear QR Code da Sala</h2>
         <p style="font-size:.82rem;color:var(--muted);margin-top:.25rem">Aponte a câmera para o QR Code fixado na porta da sala</p>
       </div>
       <div class="scanner-body">
