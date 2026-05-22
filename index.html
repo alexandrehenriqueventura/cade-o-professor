@@ -126,17 +126,11 @@ function switchTab(id) {
   // ──────────────────────────────────────────────────────────────────────────
 
   // Captura resultado do redirect (mobile login)
-  try {
-    const redirectResult = await getRedirectResult(auth);
-    if (redirectResult && redirectResult.user) {
-      console.log('Login via redirect ok:', redirectResult.user.email);
-    }
-  } catch(e) {
+  getRedirectResult(auth).catch(e => {
     if (e && e.code !== 'auth/popup-closed-by-user') {
-      console.error('Redirect login error:', e.code, e.message);
-      window.showToast && window.showToast('Erro no login: ' + e.message, 'error');
+      console.error('Redirect login error:', e);
     }
-  }
+  });
 
   onAuthStateChanged(auth, async (user) => {
     if (user) {
