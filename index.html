@@ -20,7 +20,36 @@ function switchTab(id) {
   if (btn) btn.classList.add('active');
   if (id === 'qrcodes' && window.renderQRCodes) window.renderQRCodes();
 }
+
+// Proxy: aguarda função ficar disponível e chama
+function _callWhenReady(fnName, args, attempt) {
+  attempt = attempt || 0;
+  if (window['_fn_' + fnName]) {
+    window['_fn_' + fnName].apply(null, args);
+  } else if (attempt < 20) {
+    setTimeout(function(){ _callWhenReady(fnName, args, attempt+1); }, 150);
+  } else {
+    console.warn('Função não disponível:', fnName);
+  }
+}
+
+['selfDeallocate','deallocateProf','removeProfessor','deleteRoom',
+ 'downloadQR','startScanner','stopScanner','addProfessor','addSala',
+ 'manualAllocate','manualDeallocate','deallocateAllProfs','printAllQR',
+ 'showToast','showConfirmModal','renderQRCodes'
+].forEach(function(name) {
+  window[name] = function() {
+    var args = Array.prototype.slice.call(arguments);
+    // Se a função real já está no window._fn_, chama direto
+    if (window['_fn_' + name]) {
+      window['_fn_' + name].apply(null, args);
+    } else {
+      _callWhenReady(name, args);
+    }
+  };
+});
 </script>
+
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.11.0/firebase-app.js";
   import {
@@ -107,7 +136,7 @@ function switchTab(id) {
     document.getElementById('confirm-modal-ok').addEventListener('click', () => { cleanup(); onConfirm(); }, { once: true });
     document.getElementById('confirm-modal-cancel').addEventListener('click', () => { cleanup(); if (onCancel) onCancel(); }, { once: true });
   }
-  window.showConfirmModal = showConfirmModal;
+  window._fn_showConfirmModal = showConfirmModal;
 
   // ── Modal informativo de sala ocupada (apenas para professores não-admin) ──
   function showRoomBlockedModal({ roomName, currentProfName }) {
@@ -494,7 +523,7 @@ function switchTab(id) {
   }
   // ──────────────────────────────────────────────────────────────────────────
 
-  window.addProfessor = async () => {
+  window._fn_addProfessor = async () => {
     if (!guardAdmin('Apenas admins podem cadastrar professores')) return;
     const nome  = document.getElementById('prof-nome').value.trim();
     const disc  = document.getElementById('prof-disciplina').value.trim();
@@ -509,7 +538,7 @@ function switchTab(id) {
     window.showToast('Professor cadastrado!','success');
   };
 
-  window.removeProfessor = (id) => {
+  window._fn_removeProfessor = (id) => {
     if (!guardAdmin()) return;
     const prof = window._state.professors.find(p => p.id === id);
     if (!prof) return;
@@ -527,7 +556,7 @@ function switchTab(id) {
     });
   };
 
-  window.deallocateProf = (profId) => {
+  window._fn_deallocateProf = (profId) => {
     if (!guardAdmin()) return;
     const prof = window._state.professors.find(p => p.id === profId);
     const room = window._state.rooms.find(r => r.profId === profId);
@@ -547,7 +576,7 @@ function switchTab(id) {
   };
 
   // ── Desalocar TODOS os professores de uma vez ──────────────────────────────
-  window.deallocateAllProfs = () => {
+  window._fn_deallocateAllProfs = () => {
     if (!guardAdmin()) return;
     const ocupadas = window._state.rooms.filter(r => r.profId);
     if (!ocupadas.length) {
@@ -586,7 +615,7 @@ function switchTab(id) {
   // ──────────────────────────────────────────────────────────────────────────
 
   // ── selfDeallocate: professor sai da própria sala (apenas com confirmação) ─
-  window.selfDeallocate = () => {
+  window._fn_selfDeallocate = () => {
     const prof = window._state.currentProf;
     if (!prof) return;
     if (!window._state.user) { window.showToast('Faça login para continuar', 'error'); return; }
@@ -606,7 +635,7 @@ function switchTab(id) {
     });
   };
 
-  window.deleteRoom = (id) => {
+  window._fn_deleteRoom = (id) => {
     if (!guardAdmin()) return;
     const room = window._state.rooms.find(r => r.id === id);
     if (!room) return;
@@ -626,7 +655,7 @@ function switchTab(id) {
   };
 
   // ── manualDeallocate: coordenador retira professor da sala (com confirmação) ─
-  window.manualDeallocate = () => {
+  window._fn_manualDeallocate = () => {
     if (!guardAdmin()) return;
     const profId = document.getElementById('manual-prof-select').value;
     if (!profId) { window.showToast('Selecione o professor','error'); return; }
@@ -647,7 +676,7 @@ function switchTab(id) {
     });
   };
 
-  window.addSala = async () => {
+  window._fn_addSala = async () => {
     if (!guardAdmin('Apenas admins podem cadastrar salas')) return;
     const nome=document.getElementById('sala-nome').value.trim();
     const codigo=document.getElementById('sala-codigo').value.trim();
@@ -660,7 +689,7 @@ function switchTab(id) {
   };
 
   // ── manualAllocate: exige confirmação se professor já está em outra sala ────
-  window.manualAllocate = async () => {
+  window._fn_manualAllocate = async () => {
     if (!guardAdmin()) return;
     const profId=document.getElementById('manual-prof-select').value;
     const roomId=document.getElementById('manual-room-select').value;
@@ -742,7 +771,7 @@ function switchTab(id) {
     await _executeAllocation();
   };
 
-  window.downloadQR = (roomId, roomName) => {
+  window._fn_downloadQR = (roomId, roomName) => {
     const el=document.getElementById('qr-'+roomId);
     const canvas=el?.querySelector('canvas');
     if (!canvas) { window.showToast('QR Code carregando...','error'); return; }
@@ -753,8 +782,8 @@ function switchTab(id) {
     window.showToast('Download iniciado!','success');
   };
 
-  window.printAllQR = () => { renderQRCodes(); setTimeout(()=>window.print(),400); };
-  window.renderQRCodes = renderQRCodes;
+  window._fn_printAllQR = () => { renderQRCodes(); setTimeout(()=>window.print(),400); };
+  window._fn_renderQRCodes = renderQRCodes;
 
   let _scanner=null, _scannerActive=false;
 
@@ -875,7 +904,7 @@ function switchTab(id) {
     );
   }
 
-  window.startScanner = async () => {
+  window._fn_startScanner = async () => {
     const { user, isAdmin, currentProf } = window._state;
     if (!user) { window.showToast('Faça login para escanear','error'); return; }
     if (!isAdmin && !currentProf) { window.showToast('Seu e-mail não está cadastrado como professor','error'); return; }
@@ -921,7 +950,7 @@ function switchTab(id) {
     }
   };
 
-  window.stopScanner = () => {
+  window._fn_stopScanner = () => {
     if (_scanner && _scannerActive) {
       _scanner.stop().catch(()=>{});
       _scannerActive = false;
@@ -932,7 +961,7 @@ function switchTab(id) {
     resetScannerUI();
   };
 
-  window.showToast = (msg, type='info') => {
+  window._fn_showToast = (msg, type='info') => {
     const t = document.createElement('div');
     t.className = `toast toast-${type}`;
     t.textContent = msg;
