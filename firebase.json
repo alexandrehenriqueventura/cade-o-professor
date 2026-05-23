@@ -1,5 +1,6 @@
 {
   "hosting": {
+    "site": "cade-o-professor",
     "public": ".",
     "ignore": [
       "firebase.json",
