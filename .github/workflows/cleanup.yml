@@ -1,0 +1,37 @@
+name: Desalocação Automática de Professores
+
+on:
+  schedule:
+    # Roda de segunda a sexta-feira às 21:00 UTC (18:00 no horário de Brasília)
+    # * * * * *
+    # │ │ │ │ │
+    # │ │ │ │ └─ Dia da semana (1-5 = segunda a sexta)
+    # │ │ │ └─── Mês (qualquer um)
+    # │ │ └───── Dia do mês (qualquer um)
+    # │ └─────── Hora (21 UTC = 18h no fuso -3 de Brasília)
+    # └───────── Minuto (00)
+    - cron: '0 21 * * 1-5'
+  
+  # Permite disparar o workflow manualmente pelo painel do GitHub para testes
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v3
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Instalar biblioteca do Firebase Admin
+        run: npm install firebase-admin
+
+      - name: Executar script de limpeza
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: node scripts/cleanup-db.js
