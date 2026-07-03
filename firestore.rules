@@ -9,8 +9,8 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() &&
-        exists(/databases/$(database)/documents/admins/$(request.auth.token.email)) &&
-        get(/databases/$(database)/documents/admins/$(request.auth.token.email)).data.ativo == true;
+        exists(/databases/$(database)/documents/admins/$(request.auth.token.email.lower())) &&
+        get(/databases/$(database)/documents/admins/$(request.auth.token.email.lower())).data.ativo == true;
     }
     // ────────────────────────────────────────────────────────────────────
 
@@ -32,7 +32,7 @@ service cloud.firestore {
       allow create, delete: if isAdmin();
       allow update: if isAdmin() ||
         (isAuthenticated() &&
-         request.auth.token.email == resource.data.email &&
+         request.auth.token.email.lower() == resource.data.email.lower() &&
          request.resource.data.diff(resource.data).affectedKeys()
            .hasOnly(['updatedAt']));
     }
@@ -49,17 +49,21 @@ service cloud.firestore {
       allow create, delete: if isAdmin();
       allow update: if isAdmin() ||
         (isAuthenticated() &&
-         request.resource.data.diff(resource.data).affectedKeys()
-           .hasOnly(['profId']) &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['profId']) &&
          (
-           // Professor saindo da sala (seta null)
-           request.resource.data.profId == null ||
+           // Professor saindo da sala (seta null) — verifica se a sala estava ocupada por ele próprio
+           (
+             request.resource.data.profId == null &&
+             resource.data.profId != null &&
+             exists(/databases/$(database)/documents/professores/$(resource.data.profId)) &&
+             get(/databases/$(database)/documents/professores/$(resource.data.profId)).data.email.lower() == request.auth.token.email.lower()
+           ) ||
            // Professor entrando: verifica se o profId referencia o documento
            // cujo campo email corresponde ao usuário autenticado
            (
              request.resource.data.profId is string &&
              exists(/databases/$(database)/documents/professores/$(request.resource.data.profId)) &&
-             get(/databases/$(database)/documents/professores/$(request.resource.data.profId)).data.email == request.auth.token.email
+             get(/databases/$(database)/documents/professores/$(request.resource.data.profId)).data.email.lower() == request.auth.token.email.lower()
            )
          )
         );
@@ -73,7 +77,14 @@ service cloud.firestore {
       allow read: if isAdmin();
       allow create: if isAuthenticated() &&
         request.resource.data.keys().hasAll(['profId','profNome','salaId','salaNome','acao','ts']) &&
-        request.resource.data.acao in ['entrada', 'saida'];
+        request.resource.data.acao in ['entrada', 'saida'] &&
+        (
+          isAdmin() ||
+          (
+            exists(/databases/$(database)/documents/professores/$(request.resource.data.profId)) &&
+            get(/databases/$(database)/documents/professores/$(request.resource.data.profId)).data.email.lower() == request.auth.token.email.lower()
+          )
+        );
       allow update, delete: if false;
     }
 

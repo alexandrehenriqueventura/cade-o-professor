@@ -85,6 +85,17 @@ function _callWhenReady(fnName, args, attempt) {
   window.avatarColor = n => { let h=0; for(let c of n) h=(h*31+c.charCodeAt(0))%COLORS.length; return COLORS[Math.abs(h)]; };
   window.initials = n => n.trim().split(' ').filter(Boolean).slice(0,2).map(w=>w[0].toUpperCase()).join('');
 
+  function escapeHTML(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+  window.escapeHTML = escapeHTML;
+
   function timeAgo(ts) {
     if (!ts) return '';
     const diff = Math.floor((Date.now() - ts.toMillis()) / 1000);
@@ -96,7 +107,7 @@ function _callWhenReady(fnName, args, attempt) {
 
   async function checkAdmin(email) {
     if (!email) return false;
-    const snap = await getDoc(doc(db, 'admins', email));
+    const snap = await getDoc(doc(db, 'admins', email.toLowerCase()));
     return snap.exists() && snap.data().ativo === true;
   }
 
@@ -117,8 +128,10 @@ function _callWhenReady(fnName, args, attempt) {
     iconEl.textContent = icon;
     iconEl.className = 'modal-icon modal-icon-' + iconType;
     titleEl.textContent = title;
-    // Sanitiza HTML simples: permite apenas <strong>, <br> e <small> com style
-    bodyEl.innerHTML = body.replace(/<(?!(\/?strong|br|\/?small)[\s>])[^>]*>/gi, '');
+    // Sanitiza HTML simples: permite apenas <strong>, <br> e <small>, removendo manipuladores de eventos
+    let cleanBody = body.replace(/<(?!(\/?strong|br|\/?small)[\s>])[^>]*>/gi, '');
+    cleanBody = cleanBody.replace(/\son\w+\s*=\s*(['"].*?['"]|[^'\s>]+(?=\s|>))/gi, '');
+    bodyEl.innerHTML = cleanBody;
     btnConfirm.textContent = confirmLabel;
     btnCancel.textContent = cancelLabel;
 
@@ -204,8 +217,8 @@ function _callWhenReady(fnName, args, attempt) {
       if (isAdmin) badge = '<span class="badge-admin">Admin</span>';
       else if (currentProf) badge = '<span class="badge-prof">Professor</span>';
       else badge = '<span class="badge-visitor">Visitante</span>';
-      info.innerHTML = `<img src="${user.photoURL}" class="user-avatar" referrerpolicy="no-referrer">
-        <span class="user-name">${user.displayName?.split(' ')[0]}</span>
+      info.innerHTML = `<img src="${escapeHTML(user.photoURL)}" class="user-avatar" referrerpolicy="no-referrer">
+        <span class="user-name">${escapeHTML(user.displayName?.split(' ')[0])}</span>
         ${badge}`;
     } else {
       btn.textContent = '🔑 Entrar';
@@ -242,7 +255,7 @@ function _callWhenReady(fnName, args, attempt) {
     const prev = sel.value;
     sel.innerHTML = '<option value="">— Escolha o professor a alocar —</option>' +
       window._state.professors.map(p =>
-        `<option value="${p.id}" ${p.id === prev ? 'selected' : ''}>${p.name} — ${p.subject}</option>`
+        `<option value="${p.id}" ${p.id === prev ? 'selected' : ''}>${escapeHTML(p.name)} — ${escapeHTML(p.subject)}</option>`
       ).join('');
   }
 
@@ -269,14 +282,14 @@ function _callWhenReady(fnName, args, attempt) {
         const room = getRoomOfProf(currentProf.id);
         infoEl.innerHTML = `
           <div class="prof-ident-card">
-            <div class="prof-avatar" style="background:${window.avatarColor(currentProf.name)}">${window.initials(currentProf.name)}</div>
+            <div class="prof-avatar" style="background:${window.avatarColor(currentProf.name)}">${escapeHTML(window.initials(currentProf.name))}</div>
             <div class="prof-info">
-              <div class="prof-name">${currentProf.name}</div>
-              <div class="prof-subject">${currentProf.subject}</div>
+              <div class="prof-name">${escapeHTML(currentProf.name)}</div>
+              <div class="prof-subject">${escapeHTML(currentProf.subject)}</div>
             </div>
             ${room
               ? `<div style="display:flex;flex-direction:column;align-items:flex-end;gap:.4rem">
-                   <span class="prof-room">📍 ${room.name}</span>
+                   <span class="prof-room">📍 ${escapeHTML(room.name)}</span>
                    <button class="btn btn-secondary btn-sm" onclick="window.selfDeallocate()">Sair da sala</button>
                  </div>`
               : `<span class="badge badge-muted">Sem sala</span>`
@@ -321,13 +334,13 @@ function _callWhenReady(fnName, args, attempt) {
       const room = getRoomOfProf(p.id);
       const ago = p.updatedAt ? `<div class="prof-time">${timeAgo(p.updatedAt)}</div>` : '';
       return `<div class="prof-card present">
-        <div class="prof-avatar" style="background:${window.avatarColor(p.name)}">${window.initials(p.name)}</div>
+        <div class="prof-avatar" style="background:${window.avatarColor(p.name)}">${escapeHTML(window.initials(p.name))}</div>
         <div class="prof-info">
-          <div class="prof-name">${p.name}</div>
-          <div class="prof-subject">${p.subject}</div>
+          <div class="prof-name">${escapeHTML(p.name)}</div>
+          <div class="prof-subject">${escapeHTML(p.subject)}</div>
           ${ago}
         </div>
-        <span class="prof-room">📍 ${room.name}</span>
+        <span class="prof-room">📍 ${escapeHTML(room.name)}</span>
       </div>`;
     }).join('');
   }
@@ -339,13 +352,13 @@ function _callWhenReady(fnName, args, attempt) {
     c.innerHTML = profs.map(p => {
       const room = getRoomOfProf(p.id);
       return `<div class="prof-manage-card">
-        <div class="prof-avatar" style="background:${window.avatarColor(p.name)}">${window.initials(p.name)}</div>
+        <div class="prof-avatar" style="background:${window.avatarColor(p.name)}">${escapeHTML(window.initials(p.name))}</div>
         <div class="prof-info">
-          <div class="prof-name">${p.name}</div>
-          <div class="prof-subject">${p.subject}</div>
-          ${p.email ? `<div class="prof-email">${p.email}</div>` : '<div class="prof-email" style="color:var(--error)">⚠️ sem e-mail</div>'}
+          <div class="prof-name">${escapeHTML(p.name)}</div>
+          <div class="prof-subject">${escapeHTML(p.subject)}</div>
+          ${p.email ? `<div class="prof-email">${escapeHTML(p.email)}</div>` : '<div class="prof-email" style="color:var(--error)">⚠️ sem e-mail</div>'}
         </div>
-        ${room ? `<span class="badge badge-success">📍 ${room.name}</span>` : `<span class="badge badge-muted">Sem sala</span>`}
+        ${room ? `<span class="badge badge-success">📍 ${escapeHTML(room.name)}</span>` : `<span class="badge badge-muted">Sem sala</span>`}
         <div class="prof-manage-actions">
           ${room ? `<button class="btn btn-secondary btn-sm" onclick="window.deallocateProf('${p.id}')">Sair da sala</button>` : ''}
           <button class="btn btn-danger btn-sm" onclick="window.removeProfessor('${p.id}')">Excluir</button>
@@ -361,9 +374,9 @@ function _callWhenReady(fnName, args, attempt) {
     c.innerHTML = rooms.map(r => {
       const prof = window._state.professors.find(p => p.id === r.profId);
       return `<div class="room-card">
-        <div class="room-number">${r.code}</div>
-        <div class="room-name">${r.name}</div>
-        <div class="room-occupant">${prof ? '👤 '+prof.name : 'Sala livre'}</div>
+        <div class="room-number">${escapeHTML(r.code)}</div>
+        <div class="room-name">${escapeHTML(r.name)}</div>
+        <div class="room-occupant">${prof ? '👤 '+escapeHTML(prof.name) : 'Sala livre'}</div>
         <div class="room-actions admin-only"><button class="btn btn-danger btn-sm" onclick="window.deleteRoom('${r.id}')">Excluir</button></div>
       </div>`;
     }).join('');
@@ -376,9 +389,9 @@ function _callWhenReady(fnName, args, attempt) {
     if (!rooms.length) { c.innerHTML = `<div class="empty-state"><h3>Nenhuma sala cadastrada</h3></div>`; return; }
     c.innerHTML = rooms.map(r => `
       <div class="qr-card">
-        <div class="qr-room-name">${r.name}</div>
+        <div class="qr-room-name">${escapeHTML(r.name)}</div>
         <div class="qr-code-wrap" id="qr-${r.id}"></div>
-        <button class="btn btn-secondary btn-sm no-print" onclick="window.downloadQR('${r.id}','${r.name}')">⬇ Baixar</button>
+        <button class="btn btn-secondary btn-sm no-print" onclick="window.downloadQR('${r.id}','${escapeHTML(r.name)}')">⬇ Baixar</button>
       </div>`).join('');
     rooms.forEach(r => {
       const el = document.getElementById('qr-' + r.id);
@@ -402,10 +415,10 @@ function _callWhenReady(fnName, args, attempt) {
       return `<div class="log-row ${cls}">
         <span class="log-icon">${icon}</span>
         <div class="log-info">
-          <span class="log-prof">${r.profNome}</span>
-          <span class="log-detail">${r.acao === 'entrada' ? `entrou em ${r.salaNome}` : `saiu de ${r.salaNome}`}</span>
+          <span class="log-prof">${escapeHTML(r.profNome)}</span>
+          <span class="log-detail">${r.acao === 'entrada' ? `entrou em ${escapeHTML(r.salaNome)}` : `saiu de ${escapeHTML(r.salaNome)}`}</span>
         </div>
-        <span class="log-time">${dt}</span>
+        <span class="log-time">${escapeHTML(dt)}</span>
       </div>`;
     }).join('');
   }
@@ -425,13 +438,13 @@ function _callWhenReady(fnName, args, attempt) {
     if (rs) {
       const rv = rs.value;
       rs.innerHTML = '<option value="">— Escolha a sala —</option>' +
-        window._state.rooms.map(r => `<option value="${r.id}" ${r.id===rv?'selected':''}>${r.name}</option>`).join('');
+        window._state.rooms.map(r => `<option value="${r.id}" ${r.id===rv?'selected':''}>${escapeHTML(r.name)}</option>`).join('');
     }
     const mp = document.getElementById('manual-prof-select');
     if (mp) {
       const mv = mp.value;
       mp.innerHTML = '<option value="">— Escolha o professor —</option>' +
-        window._state.professors.map(p => `<option value="${p.id}" ${p.id===mv?'selected':''}>${p.name} — ${p.subject}</option>`).join('');
+        window._state.professors.map(p => `<option value="${p.id}" ${p.id===mv?'selected':''}>${escapeHTML(p.name)} — ${escapeHTML(p.subject)}</option>`).join('');
     }
     updateScannerProfSelect();
   }
@@ -513,7 +526,7 @@ function _callWhenReady(fnName, args, attempt) {
       showConfirmModal({
         icon: '🔄', iconType: 'warn',
         title: 'Mudar de sala?',
-        body: `<strong>${prof?.name}</strong> já está na <strong>${currentRoom.name}</strong>.<br>Deseja mudar para <strong>${room.name}</strong>?`,
+        body: `<strong>${escapeHTML(prof?.name)}</strong> já está na <strong>${escapeHTML(currentRoom.name)}</strong>.<br>Deseja mudar para <strong>${escapeHTML(room.name)}</strong>?`,
         confirmLabel: 'Sim, mudar', cancelLabel: 'Cancelar',
         onConfirm: () => _doAllocateNow(profId, room, prof),
         onCancel: () => {
@@ -551,7 +564,7 @@ function _callWhenReady(fnName, args, attempt) {
     showConfirmModal({
       icon: '🗑️', iconType: 'danger',
       title: 'Excluir professor?',
-      body: `Tem certeza que deseja excluir <strong>${prof.name}</strong>? Esta ação não pode ser desfeita.`,
+      body: `Tem certeza que deseja excluir <strong>${escapeHTML(prof.name)}</strong>? Esta ação não pode ser desfeita.`,
       confirmLabel: 'Sim, excluir', cancelLabel: 'Cancelar',
       onConfirm: async () => {
         const room = window._state.rooms.find(r => r.profId === id);
@@ -570,7 +583,7 @@ function _callWhenReady(fnName, args, attempt) {
     showConfirmModal({
       icon: '🚪', iconType: 'warn',
       title: 'Retirar da sala?',
-      body: `Deseja retirar <strong>${prof?.name}</strong> de <strong>${room.name}</strong>?`,
+      body: `Deseja retirar <strong>${escapeHTML(prof?.name)}</strong> de <strong>${escapeHTML(room.name)}</strong>?`,
       confirmLabel: 'Sim, retirar', cancelLabel: 'Cancelar',
       onConfirm: async () => {
         await updateDoc(doc(db,'salas',room.id),{profId:null});
@@ -630,7 +643,7 @@ function _callWhenReady(fnName, args, attempt) {
     showConfirmModal({
       icon: '🚪', iconType: 'warn',
       title: 'Sair da sala?',
-      body: `Deseja sair de <strong>${room.name}</strong>?`,
+      body: `Deseja sair de <strong>${escapeHTML(room.name)}</strong>?`,
       confirmLabel: 'Sim, sair', cancelLabel: 'Cancelar',
       onConfirm: async () => {
         await updateDoc(doc(db,'salas',room.id),{profId:null});
@@ -650,8 +663,8 @@ function _callWhenReady(fnName, args, attempt) {
       icon: '🏫', iconType: 'danger',
       title: 'Excluir sala?',
       body: ocupada
-        ? `<strong>${room.name}</strong> está ocupada por <strong>${ocupada.name}</strong>. Excluir também removerá a alocação. Esta ação não pode ser desfeita.`
-        : `Tem certeza que deseja excluir <strong>${room.name}</strong>? Esta ação não pode ser desfeita.`,
+        ? `<strong>${escapeHTML(room.name)}</strong> está ocupada por <strong>${escapeHTML(ocupada.name)}</strong>. Excluir também removerá a alocação. Esta ação não pode ser desfeita.`
+        : `Tem certeza que deseja excluir <strong>${escapeHTML(room.name)}</strong>? Esta ação não pode ser desfeita.`,
       confirmLabel: 'Sim, excluir', cancelLabel: 'Cancelar',
       onConfirm: async () => {
         await deleteDoc(doc(db,'salas',id));
@@ -671,7 +684,7 @@ function _callWhenReady(fnName, args, attempt) {
     showConfirmModal({
       icon: '🚪', iconType: 'warn',
       title: 'Retirar da sala?',
-      body: `Deseja retirar <strong>${prof?.name}</strong> de <strong>${room.name}</strong>?<br><small style="color:var(--muted)">O professor só é removido manualmente pelo coordenador ou ao clicar em "Sair da sala".</small>`,
+      body: `Deseja retirar <strong>${escapeHTML(prof?.name)}</strong> de <strong>${escapeHTML(room.name)}</strong>?<br><small style="color:var(--muted)">O professor só é removido manualmente pelo coordenador ou ao clicar em "Sair da sala".</small>`,
       confirmLabel: 'Sim, retirar', cancelLabel: 'Cancelar',
       onConfirm: async () => {
         await updateDoc(doc(db,'salas',room.id),{profId:null});
@@ -740,7 +753,7 @@ function _callWhenReady(fnName, args, attempt) {
       showConfirmModal({
         icon: '🔄', iconType: 'warn',
         title: 'Confirmar realocação?',
-        body: `<strong>${prof.name}</strong> está na <strong>${profCurrentRoom.name}</strong> e será movido para <strong>${room.name}</strong>, que está com <strong>${currentOccupant.name}</strong>.<br>Deseja continuar?`,
+        body: `<strong>${escapeHTML(prof.name)}</strong> está na <strong>${escapeHTML(profCurrentRoom.name)}</strong> e será movido para <strong>${escapeHTML(room.name)}</strong>, que está com <strong>${escapeHTML(currentOccupant.name)}</strong>.<br>Deseja continuar?`,
         confirmLabel: 'Sim, realocar', cancelLabel: 'Cancelar',
         onConfirm: _executeAllocation,
         onCancel: () => window.showToast('Alocação cancelada','info')
@@ -765,7 +778,7 @@ function _callWhenReady(fnName, args, attempt) {
       showConfirmModal({
         icon: '🔄', iconType: 'warn',
         title: 'Mudar de sala?',
-        body: `<strong>${prof.name}</strong> já está na <strong>${profCurrentRoom.name}</strong>.<br>Deseja mudar para <strong>${room.name}</strong>?`,
+        body: `<strong>${escapeHTML(prof.name)}</strong> já está na <strong>${escapeHTML(profCurrentRoom.name)}</strong>.<br>Deseja mudar para <strong>${escapeHTML(room.name)}</strong>?`,
         confirmLabel: 'Sim, mudar', cancelLabel: 'Cancelar',
         onConfirm: _executeAllocation,
         onCancel: () => window.showToast('Alocação cancelada','info')
@@ -830,7 +843,7 @@ function _callWhenReady(fnName, args, attempt) {
   function showScanError(msg) {
     const resultBox = document.getElementById('scan-result-box');
     resultBox.className = 'scan-result error';
-    resultBox.innerHTML = `${msg}<br><button class="btn btn-secondary btn-sm" style="margin-top:.6rem" onclick="window.startScanner()">🔄 Tentar novamente</button>`;
+    resultBox.innerHTML = `${escapeHTML(msg)}<br><button class="btn btn-secondary btn-sm" style="margin-top:.6rem" onclick="window.startScanner()">🔄 Tentar novamente</button>`;
   }
 
   function resetScannerUI() {
@@ -980,57 +993,65 @@ function _callWhenReady(fnName, args, attempt) {
 
 <style>
   :root {
-    --bg: #f4f6f9;
-    --surface: #ffffff;
-    --surface2: #f8fafc;
-    --border: #e2e8f0;
-    --text: #1a202c;
-    --muted: #64748b;
-    --faint: #94a3b8;
-    --primary: #2563eb;
-    --primary-hover: #1d4ed8;
-    --success: #16a34a;
-    --success-bg: #dcfce7;
-    --error: #dc2626;
-    --error-bg: #fee2e2;
-    --warn: #d97706;
-    --warn-bg: #fef3c7;
-    --info: #0891b2;
-    --info-bg: #cffafe;
-    --radius: 12px;
-    --radius-sm: 8px;
-    --shadow: 0 1px 3px rgba(0,0,0,.08), 0 4px 16px rgba(0,0,0,.05);
-    --shadow-lg: 0 8px 32px rgba(0,0,0,.12);
-    --transition: 180ms cubic-bezier(.16,1,.3,1);
+    --bg: hsl(220, 24%, 96%);
+    --surface: hsl(0, 0%, 100%);
+    --surface2: hsl(210, 40%, 98%);
+    --border: hsl(214, 32%, 91%);
+    --text: hsl(222, 47%, 11%);
+    --muted: hsl(215, 16%, 47%);
+    --faint: hsl(215, 20%, 65%);
+    --primary: hsl(244, 75%, 59%);
+    --primary-hover: hsl(244, 75%, 52%);
+    --primary-gradient: linear-gradient(135deg, hsl(244, 75%, 59%), hsl(262, 80%, 50%));
+    --primary-gradient-hover: linear-gradient(135deg, hsl(244, 75%, 54%), hsl(262, 80%, 45%));
+    --success: hsl(142, 72%, 29%);
+    --success-bg: hsl(143, 76%, 95%);
+    --error: hsl(346, 84%, 48%);
+    --error-bg: hsl(345, 100%, 97%);
+    --warn: hsl(38, 92%, 40%);
+    --warn-bg: hsl(40, 100%, 96%);
+    --info: hsl(188, 86%, 33%);
+    --info-bg: hsl(185, 96%, 95%);
+    --radius: 16px;
+    --radius-sm: 10px;
+    --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03), 0 0 0 1px rgba(0, 0, 0, 0.02);
+    --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.08), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    --shadow-primary: 0 10px 15px -3px rgba(79, 70, 229, 0.25);
+    --transition: 250ms cubic-bezier(.16,1,.3,1);
   }
   [data-theme="dark"] {
-    --bg: #0f172a;
-    --surface: #1e293b;
-    --surface2: #263348;
-    --border: #334155;
-    --text: #e2e8f0;
-    --muted: #94a3b8;
-    --faint: #64748b;
-    --primary: #3b82f6;
-    --primary-hover: #2563eb;
-    --success: #22c55e;
-    --success-bg: #14532d;
-    --error: #f87171;
-    --error-bg: #7f1d1d;
-    --warn: #fbbf24;
-    --warn-bg: #78350f;
-    --info: #22d3ee;
-    --info-bg: #164e63;
+    --bg: hsl(222, 47%, 7%);
+    --surface: hsl(217, 33%, 12%);
+    --surface2: hsl(215, 28%, 17%);
+    --border: hsl(217, 20%, 20%);
+    --text: hsl(210, 40%, 96%);
+    --muted: hsl(215, 20%, 65%);
+    --faint: hsl(215, 16%, 47%);
+    --primary: hsl(245, 82%, 67%);
+    --primary-hover: hsl(245, 82%, 73%);
+    --primary-gradient: linear-gradient(135deg, hsl(245, 82%, 67%), hsl(263, 85%, 60%));
+    --primary-gradient-hover: linear-gradient(135deg, hsl(245, 82%, 73%), hsl(263, 85%, 65%));
+    --success: hsl(142, 69%, 58%);
+    --success-bg: hsl(145, 80%, 10%);
+    --error: hsl(346, 84%, 61%);
+    --error-bg: hsl(346, 84%, 12%);
+    --warn: hsl(38, 92%, 60%);
+    --warn-bg: hsl(38, 92%, 12%);
+    --info: hsl(188, 86%, 53%);
+    --info-bg: hsl(188, 86%, 10%);
+    --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -1px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(255, 255, 255, 0.05);
   }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   html { scroll-behavior: smooth; }
-  body { font-family: 'Inter', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100dvh; font-size: 15px; line-height: 1.6; }
+  body { font-family: 'Inter', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100dvh; font-size: 15px; line-height: 1.6; transition: background var(--transition), color var(--transition); }
 
   /* ── Header ── */
   .header {
-    background: var(--surface);
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border-bottom: 1px solid var(--border);
-    padding: .75rem 1rem;
+    padding: .75rem 1.5rem;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -1039,187 +1060,320 @@ function _callWhenReady(fnName, args, attempt) {
     top: 0;
     z-index: 100;
     flex-wrap: wrap;
+    transition: background var(--transition), border var(--transition);
   }
-  .header-brand { display: flex; align-items: center; gap: .6rem; }
-  .header-logo { width: 36px; height: 36px; }
-  .header-title { font-family: 'Inter', system-ui, sans-serif; font-size: 1.1rem; font-weight: 700; color: var(--text); line-height: 1.2; }
-  .header-subtitle { font-size: .72rem; color: var(--muted); font-weight: 400; }
-  .header-actions { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
-  #auth-info { display: flex; align-items: center; gap: .4rem; font-size: .82rem; }
-  .user-avatar { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; }
-  .user-name { font-weight: 500; color: var(--text); }
-  .badge-admin { background: #fef3c7; color: #92400e; font-size: .7rem; font-weight: 600; padding: .15rem .5rem; border-radius: 999px; }
-  .badge-prof  { background: #dbeafe; color: #1e40af; font-size: .7rem; font-weight: 600; padding: .15rem .5rem; border-radius: 999px; }
-  .badge-visitor { background: var(--border); color: var(--muted); font-size: .7rem; font-weight: 600; padding: .15rem .5rem; border-radius: 999px; }
+  [data-theme="dark"] .header {
+    background: rgba(30, 41, 59, 0.8);
+  }
+  .header-brand { display: flex; align-items: center; gap: .75rem; }
+  .header-logo { width: 38px; height: 38px; filter: drop-shadow(0 4px 6px rgba(37, 99, 235, 0.2)); }
+  .header-title { font-family: 'Inter', system-ui, sans-serif; font-size: 1.15rem; font-weight: 800; color: var(--text); line-height: 1.2; letter-spacing: -0.02em; }
+  .header-subtitle { font-size: .75rem; color: var(--muted); font-weight: 500; }
+  .header-actions { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
+  #auth-info { display: flex; align-items: center; gap: .5rem; font-size: .84rem; }
+  .user-avatar { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; border: 2px solid var(--border); }
+  .user-name { font-weight: 600; color: var(--text); }
+  .badge-admin { background: var(--warn-bg); color: var(--warn); font-size: .72rem; font-weight: 700; padding: .2rem .6rem; border-radius: 999px; border: 1px solid rgba(217, 119, 6, 0.2); }
+  .badge-prof  { background: var(--info-bg); color: var(--info); font-size: .72rem; font-weight: 700; padding: .2rem .6rem; border-radius: 999px; border: 1px solid rgba(8, 145, 178, 0.2); }
+  .badge-visitor { background: var(--border); color: var(--muted); font-size: .72rem; font-weight: 700; padding: .2rem .6rem; border-radius: 999px; }
 
-  /* ── Tabs ── */
-  .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); background: var(--surface); overflow-x: auto; padding: 0 1rem; }
-  .tab-btn { padding: .75rem 1rem; font-size: .85rem; font-weight: 500; color: var(--muted); border: none; background: none; cursor: pointer; border-bottom: 2px solid transparent; transition: color var(--transition), border-color var(--transition); white-space: nowrap; }
+  /* ── Tabs (iOS-style Segmented Control) ── */
+  .tabs {
+    display: flex;
+    gap: 0.25rem;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 0.25rem;
+    border-radius: 14px;
+    margin: 1.5rem auto;
+    max-width: 650px;
+    width: calc(100% - 2rem);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.02);
+  }
+  .tab-btn {
+    flex: 1;
+    padding: 0.65rem 1rem;
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--muted);
+    border: none;
+    background: none;
+    cursor: pointer;
+    border-radius: 10px;
+    transition: all var(--transition);
+    white-space: nowrap;
+    text-align: center;
+    border-bottom: none;
+  }
   .tab-btn:hover { color: var(--text); }
-  .tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
+  .tab-btn.active {
+    color: var(--primary);
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
 
   /* ── Main layout ── */
-  .main { max-width: 960px; margin: 0 auto; padding: 1.25rem 1rem 3rem; }
+  .main { max-width: 960px; margin: 0 auto; padding: 0 1rem 3rem; }
   .tab-panel { display: none; }
-  .tab-panel.active { display: block; }
+  .tab-panel.active { display: block; animation: fadeIn 250ms ease-out; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 
   /* ── Stats bar ── */
-  .stats-bar { display: flex; gap: .75rem; margin-bottom: 1.25rem; flex-wrap: wrap; }
-  .stat-card { flex: 1; min-width: 100px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .75rem 1rem; display: flex; flex-direction: column; gap: .2rem; }
-  .stat-label { font-size: .72rem; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: .04em; }
-  .stat-value { font-size: 1.6rem; font-weight: 700; font-family: 'Inter', system-ui, sans-serif; color: var(--text); line-height: 1; }
+  .stats-bar { display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+  .stat-card {
+    flex: 1;
+    min-width: 120px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: .25rem;
+    box-shadow: var(--shadow);
+    transition: transform var(--transition), box-shadow var(--transition);
+  }
+  .stat-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+  .stat-label { font-size: .75rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
+  .stat-value { font-size: 1.75rem; font-weight: 800; font-family: 'Inter', system-ui, sans-serif; color: var(--text); line-height: 1.1; }
   .stat-card.present .stat-value { color: var(--success); }
   .stat-card.absent .stat-value { color: var(--muted); }
 
   /* ── Search ── */
-  .search-wrap { position: relative; margin-bottom: 1rem; }
-  .search-wrap svg { position: absolute; left: .75rem; top: 50%; transform: translateY(-50%); color: var(--faint); pointer-events: none; }
-  .search-input { width: 100%; padding: .6rem .75rem .6rem 2.25rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: .9rem; transition: border-color var(--transition), box-shadow var(--transition); }
-  .search-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
+  .search-wrap { position: relative; margin-bottom: 1.25rem; }
+  .search-wrap svg { position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--faint); pointer-events: none; }
+  .search-input {
+    width: 100%;
+    padding: .75rem 1rem .75rem 2.5rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text);
+    font-size: .95rem;
+    transition: all var(--transition);
+    box-shadow: var(--shadow);
+  }
+  .search-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.15); }
   .search-input::placeholder { color: var(--faint); }
 
   /* ── Prof cards (painel) ── */
-  .painel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(280px,100%), 1fr)); gap: .75rem; }
-  .prof-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; display: flex; align-items: center; gap: .75rem; transition: box-shadow var(--transition), transform var(--transition); }
-  .prof-card:hover { box-shadow: var(--shadow); transform: translateY(-1px); }
-  .prof-card.present { border-left: 3px solid var(--success); }
-  .prof-avatar { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: .95rem; color: #fff; flex-shrink: 0; }
+  .painel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(280px,100%), 1fr)); gap: 1rem; }
+  .prof-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    transition: all var(--transition);
+    box-shadow: var(--shadow);
+    position: relative;
+    overflow: hidden;
+  }
+  .prof-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 4px;
+    height: 100%;
+    background: transparent;
+    transition: background var(--transition);
+  }
+  .prof-card.present::before { background: var(--success); }
+  .prof-card:hover { box-shadow: var(--shadow-lg); transform: translateY(-2px); }
+  .prof-avatar { width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1rem; color: #fff; flex-shrink: 0; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
   .prof-info { flex: 1; min-width: 0; }
-  .prof-name { font-weight: 600; font-size: .92rem; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .prof-subject { font-size: .78rem; color: var(--muted); }
-  .prof-time { font-size: .72rem; color: var(--faint); margin-top: .15rem; }
-  .prof-room { font-size: .78rem; font-weight: 600; color: var(--success); background: var(--success-bg); padding: .25rem .6rem; border-radius: 999px; white-space: nowrap; flex-shrink: 0; }
-  .prof-status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--faint); flex-shrink: 0; }
+  .prof-name { font-weight: 700; font-size: 0.98rem; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .prof-subject { font-size: .82rem; color: var(--muted); font-weight: 500; }
+  .prof-time { font-size: .75rem; color: var(--faint); margin-top: .2rem; }
+  .prof-room { font-size: .8rem; font-weight: 700; color: var(--success); background: var(--success-bg); padding: .3rem .75rem; border-radius: 999px; white-space: nowrap; flex-shrink: 0; border: 1px solid rgba(22, 163, 74, 0.15); }
 
   /* ── Empty state ── */
-  .empty-state { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 3rem 1rem; color: var(--muted); gap: .75rem; }
-  .empty-state svg { width: 48px; height: 48px; opacity: .4; }
-  .empty-state h3 { font-size: 1rem; color: var(--text); }
-  .empty-state p { font-size: .85rem; max-width: 36ch; }
+  .empty-state { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 4rem 1.5rem; color: var(--muted); gap: 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+  .empty-state svg { width: 56px; height: 56px; opacity: .4; color: var(--primary); }
+  .empty-state h3 { font-size: 1.1rem; color: var(--text); font-weight: 700; }
+  .empty-state p { font-size: .9rem; max-width: 38ch; }
 
   /* ── Section header ── */
-  .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; gap: .5rem; flex-wrap: wrap; }
-  .section-title { font-family: 'Inter', system-ui, sans-serif; font-size: 1rem; font-weight: 600; }
+  .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem; gap: .75rem; flex-wrap: wrap; }
+  .section-title { font-family: 'Inter', system-ui, sans-serif; font-size: 1.1rem; font-weight: 700; letter-spacing: -0.01em; }
 
   /* ── Cards (admin manage) ── */
-  .prof-manage-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .875rem 1rem; display: flex; align-items: center; gap: .75rem; margin-bottom: .5rem; flex-wrap: wrap; }
-  .prof-email { font-size: .75rem; color: var(--faint); }
-  .prof-manage-actions { display: flex; gap: .4rem; margin-left: auto; flex-shrink: 0; }
-  .room-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .875rem 1rem; display: flex; align-items: center; gap: .75rem; margin-bottom: .5rem; flex-wrap: wrap; }
-  .room-number { font-size: 1.1rem; font-weight: 700; font-family: 'Inter', system-ui, sans-serif; color: var(--primary); min-width: 2rem; }
-  .room-name { flex: 1; font-weight: 500; }
-  .room-occupant { font-size: .8rem; color: var(--muted); }
+  .prof-manage-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: .75rem;
+    flex-wrap: wrap;
+    box-shadow: var(--shadow);
+    transition: box-shadow var(--transition);
+  }
+  .prof-manage-card:hover { box-shadow: var(--shadow-lg); }
+  .prof-email { font-size: .8rem; color: var(--muted); font-weight: 500; }
+  .prof-manage-actions { display: flex; gap: .5rem; margin-left: auto; flex-shrink: 0; }
+  .room-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: .75rem;
+    flex-wrap: wrap;
+    box-shadow: var(--shadow);
+    transition: box-shadow var(--transition);
+  }
+  .room-card:hover { box-shadow: var(--shadow-lg); }
+  .room-number { font-size: 1.25rem; font-weight: 800; font-family: 'Inter', system-ui, sans-serif; color: var(--primary); min-width: 2.5rem; }
+  .room-name { flex: 1; font-weight: 600; font-size: 0.96rem; }
+  .room-occupant { font-size: .88rem; color: var(--muted); font-weight: 500; }
   .room-actions { margin-left: auto; }
 
   /* ── Badges ── */
-  .badge { font-size: .72rem; font-weight: 600; padding: .2rem .6rem; border-radius: 999px; white-space: nowrap; }
-  .badge-success { background: var(--success-bg); color: var(--success); }
-  .badge-muted { background: var(--border); color: var(--muted); }
+  .badge { font-size: .78rem; font-weight: 700; padding: .25rem .75rem; border-radius: 999px; white-space: nowrap; border: 1px solid transparent; }
+  .badge-success { background: var(--success-bg); color: var(--success); border-color: rgba(22, 163, 74, 0.15); }
+  .badge-muted { background: var(--surface2); color: var(--muted); border-color: var(--border); }
 
-  /* ── Buttons ── */
-  .btn { display: inline-flex; align-items: center; justify-content: center; gap: .4rem; padding: .55rem 1.1rem; border-radius: var(--radius-sm); font-size: .875rem; font-weight: 500; border: none; cursor: pointer; transition: background var(--transition), color var(--transition), box-shadow var(--transition); white-space: nowrap; }
-  .btn-primary { background: var(--primary); color: #fff; }
-  .btn-primary:hover { background: var(--primary-hover); }
-  .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
-  .btn-secondary:hover { background: var(--border); }
-  .btn-danger { background: var(--error-bg); color: var(--error); }
+  /* ── Buttons (Custom Gradients and Tactile feedbacks) ── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: .5rem;
+    padding: 0.6rem 1.25rem;
+    border-radius: var(--radius-sm);
+    font-size: .9rem;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    transition: all var(--transition);
+    white-space: nowrap;
+    position: relative;
+    overflow: hidden;
+  }
+  .btn:active { transform: scale(0.96); }
+  .btn-primary { background: var(--primary-gradient); color: #fff; box-shadow: var(--shadow-primary); }
+  .btn-primary:hover { background: var(--primary-gradient-hover); box-shadow: 0 12px 20px -3px rgba(79, 70, 229, 0.35); }
+  .btn-secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border); box-shadow: var(--shadow); }
+  .btn-secondary:hover { background: var(--surface2); border-color: var(--faint); }
+  .btn-danger { background: var(--error-bg); color: var(--error); border: 1px solid rgba(220, 38, 38, 0.15); }
   .btn-danger:hover { background: var(--error); color: #fff; }
-  .btn-warn { background: var(--warn-bg); color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent); }
+  .btn-warn { background: var(--warn-bg); color: var(--warn); border: 1px solid rgba(217, 119, 6, 0.15); }
   .btn-warn:hover { background: var(--warn); color: #fff; }
-  .btn-sm { padding: .35rem .75rem; font-size: .78rem; }
-  .btn-icon { padding: .5rem; border-radius: var(--radius-sm); }
-  .btn:disabled { opacity: .6; cursor: not-allowed; }
+  .btn-sm { padding: .45rem .9rem; font-size: .8rem; border-radius: 8px; }
+  .btn-icon { padding: .55rem; border-radius: var(--radius-sm); }
+  .btn:disabled { opacity: .55; cursor: not-allowed; transform: none !important; }
 
   /* ── Form ── */
-  .form-group { margin-bottom: .75rem; }
-  .form-label { display: block; font-size: .82rem; font-weight: 500; color: var(--muted); margin-bottom: .3rem; }
-  .form-input, .form-select { width: 100%; padding: .55rem .75rem; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: .9rem; transition: border-color var(--transition), box-shadow var(--transition); }
-  .form-input:focus, .form-select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
-  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+  .form-group { margin-bottom: 1rem; }
+  .form-label { display: block; font-size: .84rem; font-weight: 600; color: var(--muted); margin-bottom: .4rem; }
+  .form-input, .form-select {
+    width: 100%;
+    padding: .65rem .85rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text);
+    font-size: .95rem;
+    transition: all var(--transition);
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.01);
+  }
+  .form-input:focus, .form-select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.15); }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
   @media (max-width: 480px) { .form-row { grid-template-columns: 1fr; } }
 
   /* ── Card container ── */
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; margin-bottom: 1rem; }
-  .card-title { font-family: 'Inter', system-ui, sans-serif; font-weight: 600; margin-bottom: 1rem; font-size: .95rem; color: var(--text); }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5rem; margin-bottom: 1.25rem; box-shadow: var(--shadow); }
+  .card-title { font-family: 'Inter', system-ui, sans-serif; font-weight: 700; margin-bottom: 1.25rem; font-size: 1.05rem; color: var(--text); letter-spacing: -0.01em; }
 
   /* ── Scanner ── */
-  .scanner-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-  .scanner-header { padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); }
-  .scanner-body { padding: 1.25rem; }
-  #qr-reader { border-radius: var(--radius-sm); overflow: hidden; width: 100%; min-height: 270px; }
+  .scanner-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
+  .scanner-header { padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border); }
+  .scanner-body { padding: 1.5rem; }
+  #qr-reader { border-radius: var(--radius-sm); overflow: hidden; width: 100%; min-height: 270px; box-shadow: var(--shadow); }
   .scanner-wrap { position: relative; }
-  #scanner-placeholder { width: 100%; aspect-ratio: 4/3; max-width: 360px; margin: 0 auto; background: var(--surface2); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; color: var(--faint); font-size: .9rem; border: 2px dashed var(--border); }
+  #scanner-placeholder { width: 100%; aspect-ratio: 4/3; max-width: 360px; margin: 0 auto; background: var(--surface2); border-radius: var(--radius); display: flex; align-items: center; justify-content: center; color: var(--faint); font-size: .95rem; border: 2px dashed var(--border); transition: all var(--transition); }
   #scanner-overlay { display: none; width: 100%; max-width: 360px; min-height: 270px; margin: 0 auto; position: relative; }
-  .scanner-btns { display: flex; gap: .75rem; justify-content: center; margin-top: 1rem; }
-  .scan-result { min-height: 2.5rem; padding: .6rem 1rem; border-radius: var(--radius-sm); font-size: .88rem; font-weight: 500; text-align: center; background: transparent; margin-top: .75rem; }
-  .scan-result.success { background: var(--success-bg); color: var(--success); }
-  .scan-result.error { background: var(--error-bg); color: var(--error); }
-  .prof-ident-card { display: flex; align-items: center; gap: .75rem; padding: .75rem; background: var(--surface2); border-radius: var(--radius-sm); border: 1px solid var(--border); margin-bottom: 1rem; flex-wrap: wrap; }
+  .scanner-btns { display: flex; gap: .75rem; justify-content: center; margin-top: 1.25rem; }
+  .scan-result { min-height: 2.75rem; padding: .75rem 1.25rem; border-radius: var(--radius-sm); font-size: .9rem; font-weight: 600; text-align: center; background: transparent; margin-top: 1rem; border: 1px solid transparent; }
+  .scan-result.success { background: var(--success-bg); color: var(--success); border-color: rgba(22, 163, 74, 0.15); }
+  .scan-result.error { background: var(--error-bg); color: var(--error); border-color: rgba(220, 38, 38, 0.15); }
+  .prof-ident-card { display: flex; align-items: center; gap: 1rem; padding: 1rem; background: var(--surface2); border-radius: var(--radius); border: 1px solid var(--border); margin-bottom: 1.25rem; flex-wrap: wrap; box-shadow: var(--shadow); }
 
   /* ── Scanner admin select ── */
-  .scanner-admin-select-wrap { margin-bottom: 1rem; }
-  .scanner-admin-select-wrap .form-label { color: var(--primary); font-weight: 600; }
+  .scanner-admin-select-wrap { margin-bottom: 1.25rem; }
+  .scanner-admin-select-wrap .form-label { color: var(--primary); font-weight: 700; }
 
   /* ── QR Codes ── */
-  .qr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 1rem; }
-  .qr-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 1rem; display: flex; flex-direction: column; align-items: center; gap: .6rem; text-align: center; }
-  .qr-room-name { font-weight: 600; font-size: .9rem; }
-  .qr-code-wrap canvas { border-radius: 6px; }
+  .qr-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 1.25rem; }
+  .qr-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; display: flex; flex-direction: column; align-items: center; gap: .75rem; text-align: center; box-shadow: var(--shadow); transition: transform var(--transition); }
+  .qr-card:hover { transform: translateY(-2px); }
+  .qr-room-name { font-weight: 700; font-size: .95rem; }
+  .qr-code-wrap canvas { border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
 
   /* ── Histórico ── */
-  .log-row { display: flex; align-items: center; gap: .75rem; padding: .65rem .75rem; border-radius: var(--radius-sm); margin-bottom: .4rem; background: var(--surface); border: 1px solid var(--border); }
-  .log-entrada { border-left: 3px solid var(--success); }
-  .log-saida   { border-left: 3px solid var(--warn); }
-  .log-icon { font-size: 1.1rem; flex-shrink: 0; }
+  .log-row { display: flex; align-items: center; gap: .75rem; padding: .75rem 1rem; border-radius: var(--radius-sm); margin-bottom: .5rem; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow); transition: transform var(--transition); }
+  .log-row:hover { transform: translateX(2px); }
+  .log-entrada { border-left: 4px solid var(--success); }
+  .log-saida   { border-left: 4px solid var(--warn); }
+  .log-icon { font-size: 1.2rem; flex-shrink: 0; }
   .log-info { flex: 1; min-width: 0; }
-  .log-prof { font-weight: 600; font-size: .88rem; display: block; }
-  .log-detail { font-size: .78rem; color: var(--muted); }
-  .log-time { font-size: .72rem; color: var(--faint); white-space: nowrap; }
+  .log-prof { font-weight: 700; font-size: .92rem; display: block; }
+  .log-detail { font-size: .8rem; color: var(--muted); font-weight: 500; }
+  .log-time { font-size: .75rem; color: var(--faint); white-space: nowrap; font-weight: 500; }
 
-  /* ── Modals ── */
-  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.5); backdrop-filter: blur(4px); z-index: 200; display: none; align-items: center; justify-content: center; padding: 1rem; }
+  /* ── Modals (Glassmorphic Blurred Backdrop) ── */
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.4); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); z-index: 200; display: none; align-items: center; justify-content: center; padding: 1.25rem; }
   .modal-backdrop.open { display: flex; }
-  .modal-box { background: var(--surface); border-radius: var(--radius); padding: 1.5rem; max-width: 420px; width: 100%; box-shadow: var(--shadow-lg); animation: modalIn .2s ease; }
-  @keyframes modalIn { from { opacity:0; transform:scale(.95) translateY(8px); } to { opacity:1; transform:none; } }
-  .modal-icon { font-size: 2rem; display: block; text-align: center; margin-bottom: .75rem; }
-  .modal-title { font-family: 'Inter', system-ui, sans-serif; font-weight: 700; font-size: 1.1rem; text-align: center; margin-bottom: .5rem; }
-  .modal-body { font-size: .88rem; color: var(--muted); text-align: center; margin-bottom: 1.25rem; line-height: 1.6; }
+  .modal-box { background: var(--surface); border-radius: var(--radius); padding: 1.75rem; max-width: 440px; width: 100%; box-shadow: var(--shadow-lg); border: 1px solid var(--border); animation: modalIn 250ms cubic-bezier(.16,1,.3,1); }
+  @keyframes modalIn { from { opacity: 0; transform: scale(.96) translateY(12px); } to { opacity: 1; transform: none; } }
+  .modal-icon { font-size: 2.25rem; display: block; text-align: center; margin-bottom: 0.5rem; }
+  .modal-title { font-family: 'Inter', system-ui, sans-serif; font-weight: 800; font-size: 1.2rem; text-align: center; margin-bottom: .6rem; letter-spacing: -0.01em; }
+  .modal-body { font-size: .92rem; color: var(--muted); text-align: center; margin-bottom: 1.5rem; line-height: 1.6; font-weight: 500; }
   .modal-actions { display: flex; gap: .75rem; justify-content: center; flex-wrap: wrap; }
   .modal-icon-danger { filter: none; }
   .modal-icon-warn { filter: none; }
-  .occupied-info { background: var(--surface2); border-radius: var(--radius-sm); padding: .75rem; margin: .75rem 0; font-size: .85rem; border: 1px solid var(--border); }
+  .occupied-info { background: var(--surface2); border-radius: var(--radius-sm); padding: .85rem; margin: .85rem 0; font-size: .88rem; border: 1px solid var(--border); text-align: left; }
 
-  /* ── Modal sala bloqueada (professor não-admin) ── */
+  /* ── Modal sala bloqueada ── */
   .modal-blocked-badge {
     display: inline-flex;
     align-items: center;
     gap: .4rem;
     background: var(--error-bg);
     color: var(--error);
-    font-size: .82rem;
-    font-weight: 600;
+    font-size: .84rem;
+    font-weight: 700;
     padding: .4rem .9rem;
     border-radius: 999px;
     margin: .5rem auto .75rem;
+    border: 1px solid rgba(220, 38, 38, 0.15);
   }
   .modal-blocked-prof {
-    font-size: 1rem;
-    font-weight: 700;
+    font-size: 1.05rem;
+    font-weight: 800;
     color: var(--text);
-    margin-top: .25rem;
+    margin-top: .3rem;
   }
 
   /* ── Toasts ── */
-  #toast-container { position: fixed; bottom: 1.25rem; right: 1rem; z-index: 300; display: flex; flex-direction: column; gap: .5rem; pointer-events: none; }
-  .toast { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .65rem 1rem; font-size: .84rem; font-weight: 500; box-shadow: var(--shadow-lg); opacity: 0; transform: translateX(20px); transition: opacity .3s, transform .3s; max-width: 320px; pointer-events: auto; }
+  #toast-container { position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 300; display: flex; flex-direction: column; gap: .6rem; pointer-events: none; }
+  .toast { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .75rem 1.25rem; font-size: .88rem; font-weight: 600; box-shadow: var(--shadow-lg); opacity: 0; transform: translateY(10px); transition: all 300ms cubic-bezier(.16,1,.3,1); max-width: 320px; pointer-events: auto; }
   .toast.show { opacity: 1; transform: none; }
-  .toast-success { border-left: 3px solid var(--success); color: var(--success); }
-  .toast-error   { border-left: 3px solid var(--error);   color: var(--error); }
-  .toast-info    { border-left: 3px solid var(--info);    color: var(--info); }
+  .toast-success { border-left: 4px solid var(--success); color: var(--success); }
+  .toast-error   { border-left: 4px solid var(--error);   color: var(--error); }
+  .toast-info    { border-left: 4px solid var(--info);    color: var(--info); }
 
   /* ── Theme toggle ── */
-  #theme-toggle { background: none; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .4rem; cursor: pointer; color: var(--muted); display: flex; align-items: center; }
-  #theme-toggle:hover { color: var(--text); }
+  #theme-toggle { background: none; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .5rem; cursor: pointer; color: var(--muted); display: flex; align-items: center; transition: all var(--transition); box-shadow: var(--shadow); }
+  #theme-toggle:hover { color: var(--text); background: var(--surface2); border-color: var(--faint); }
 
   /* ── Print ── */
   @media print {
@@ -1231,14 +1385,14 @@ function _callWhenReady(fnName, args, attempt) {
   }
 
   /* ── Responsive ── */
-  @media (max-width: 400px) {
-    .header { padding: .6rem .75rem; }
-    .header-title { font-size: 1rem; }
-    .main { padding: 1rem .75rem 3rem; }
+  @media (max-width: 480px) {
+    .header { padding: .75rem 1rem; }
+    .header-title { font-size: 1.05rem; }
+    .main { padding: 0 .5rem 3rem; }
     .stats-bar { gap: .5rem; }
-    .stat-card { padding: .6rem .75rem; }
-    .stat-value { font-size: 1.4rem; }
-    .modal-box { padding: 1.25rem 1rem; }
+    .stat-card { padding: .85rem 1rem; }
+    .stat-value { font-size: 1.5rem; }
+    .modal-box { padding: 1.5rem 1.25rem; }
     .modal-actions { flex-direction: column; }
     .modal-actions .btn { width: 100%; }
   }
@@ -1533,7 +1687,7 @@ function _callWhenReady(fnName, args, attempt) {
       : allocatedProfs;
     const c = document.getElementById('painel-list');
     if (!profs.length && q) {
-      c.innerHTML = `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/></svg><h3>Nenhum resultado</h3><p>Nenhum professor alocado encontrado para "<strong>${q}</strong>"</p></div>`;
+      c.innerHTML = `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/></svg><h3>Nenhum resultado</h3><p>Nenhum professor alocado encontrado para "<strong>${escapeHTML(q)}</strong>"</p></div>`;
       return;
     }
     if (!profs.length) {
@@ -1552,13 +1706,13 @@ function _callWhenReady(fnName, args, attempt) {
       const room = window._state.rooms.find(r => r.profId === p.id);
       const ago = p.updatedAt ? `<div class="prof-time">${timeAgo(p.updatedAt)}</div>` : '';
       return `<div class="prof-card present">
-        <div class="prof-avatar" style="background:${window.avatarColor(p.name)}">${window.initials(p.name)}</div>
+        <div class="prof-avatar" style="background:${window.avatarColor(p.name)}">${escapeHTML(window.initials(p.name))}</div>
         <div class="prof-info">
-          <div class="prof-name">${p.name}</div>
-          <div class="prof-subject">${p.subject}</div>
+          <div class="prof-name">${escapeHTML(p.name)}</div>
+          <div class="prof-subject">${escapeHTML(p.subject)}</div>
           ${ago}
         </div>
-        <span class="prof-room">📍 ${room.name}</span>
+        <span class="prof-room">📍 ${escapeHTML(room.name)}</span>
       </div>`;
     }).join('');
   });
