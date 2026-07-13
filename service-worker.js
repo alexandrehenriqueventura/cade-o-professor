@@ -2,7 +2,7 @@
 // Estratégia: Network First para tudo (app em tempo real com Firebase)
 // Não intercepta requisições Firebase/Google para não quebrar a autenticação
 
-const CACHE_NAME = 'cade-o-professor-v1';
+const CACHE_NAME = 'cade-o-professor-v2';
 
 // Recursos estáticos para cache no install
 const STATIC_ASSETS = [
