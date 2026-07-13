@@ -74,7 +74,7 @@ function _callWhenReady(fnName, args, attempt) {
   const roomsCol = collection(db, "salas");
   const logCol   = collection(db, "historico");
 
-  window._state = { professors: [], rooms: [], isAdmin: false, user: null, currentProf: null, searchQuery: '' };
+  window._state = { professors: [], rooms: [], isAdmin: false, isCoordenador: false, user: null, currentProf: null, searchQuery: '' };
 
   function uuidv4() {
     return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
@@ -108,6 +108,12 @@ function _callWhenReady(fnName, args, attempt) {
   async function checkAdmin(email) {
     if (!email) return false;
     const snap = await getDoc(doc(db, 'admins', email.toLowerCase()));
+    return snap.exists() && snap.data().ativo === true;
+  }
+
+  async function checkCoordenador(email) {
+    if (!email) return false;
+    const snap = await getDoc(doc(db, 'coordenador', email.toLowerCase()));
     return snap.exists() && snap.data().ativo === true;
   }
 
@@ -183,15 +189,19 @@ function _callWhenReady(fnName, args, attempt) {
   onAuthStateChanged(auth, async (user) => {
     if (user) {
       const isAdmin = await checkAdmin(user.email);
+      const isCoordenador = await checkCoordenador(user.email);
       window._state.user = user;
       window._state.isAdmin = isAdmin;
+      window._state.isCoordenador = isCoordenador;
       const currentProf = findProfByEmail(user.email);
       window._state.currentProf = currentProf;
-      updateAuthUI(user, isAdmin, currentProf);
-      applyAdminAccess(isAdmin);
+      updateAuthUI(user, isAdmin, isCoordenador, currentProf);
+      applyAdminAccess(isAdmin, isCoordenador);
       renderScannerPanel();
       if (isAdmin) {
         window.showToast('✅ Bem-vindo, Administrador!', 'success');
+      } else if (isCoordenador) {
+        window.showToast('✅ Bem-vinda, Coordenadora!', 'success');
       } else if (currentProf) {
         window.showToast(`👋 Olá, ${currentProf.name.split(' ')[0]}!`, 'success');
       } else {
@@ -200,14 +210,15 @@ function _callWhenReady(fnName, args, attempt) {
     } else {
       window._state.user = null;
       window._state.isAdmin = false;
+      window._state.isCoordenador = false;
       window._state.currentProf = null;
-      updateAuthUI(null, false, null);
-      applyAdminAccess(false);
+      updateAuthUI(null, false, false, null);
+      applyAdminAccess(false, false);
       renderScannerPanel();
     }
   });
 
-  function updateAuthUI(user, isAdmin, currentProf) {
+  function updateAuthUI(user, isAdmin, isCoordenador, currentProf) {
     const btn = document.getElementById('auth-btn');
     const info = document.getElementById('auth-info');
     if (user) {
@@ -215,6 +226,7 @@ function _callWhenReady(fnName, args, attempt) {
       btn.onclick = () => signOut(auth);
       let badge = '';
       if (isAdmin) badge = '<span class="badge-admin">Admin</span>';
+      else if (isCoordenador) badge = '<span class="badge-coordenador">Coordenador</span>';
       else if (currentProf) badge = '<span class="badge-prof">Professor</span>';
       else badge = '<span class="badge-visitor">Visitante</span>';
       info.innerHTML = `<img src="${escapeHTML(user.photoURL)}" class="user-avatar" referrerpolicy="no-referrer">
@@ -238,9 +250,10 @@ function _callWhenReady(fnName, args, attempt) {
     }
   }
 
-  function applyAdminAccess(isAdmin) {
-    document.querySelectorAll('.admin-only').forEach(el => el.style.display = isAdmin ? '' : 'none');
-    document.querySelectorAll('.admin-tab').forEach(el => el.style.display = isAdmin ? '' : 'none');
+  function applyAdminAccess(isAdmin, isCoordenador) {
+    const hasAccess = isAdmin || isCoordenador;
+    document.querySelectorAll('.admin-only').forEach(el => el.style.display = hasAccess ? '' : 'none');
+    document.querySelectorAll('.admin-tab').forEach(el => el.style.display = hasAccess ? '' : 'none');
   }
 
   // ── Atualiza o select de professor na aba scanner (visível só para admin) ──
@@ -248,10 +261,11 @@ function _callWhenReady(fnName, args, attempt) {
     const wrap = document.getElementById('scanner-admin-prof-wrap');
     const sel  = document.getElementById('scanner-admin-prof-select');
     if (!wrap || !sel) return;
-    const { isAdmin, currentProf } = window._state;
-    // Mostra o select apenas para admins que não são professores cadastrados
-    wrap.style.display = (isAdmin && !currentProf) ? 'block' : 'none';
-    if (!isAdmin) return;
+    const { isAdmin, isCoordenador, currentProf } = window._state;
+    const hasAccess = isAdmin || isCoordenador;
+    // Mostra o select apenas para admins/coordenadores que não são professores cadastrados
+    wrap.style.display = (hasAccess && !currentProf) ? 'block' : 'none';
+    if (!hasAccess) return;
     const prev = sel.value;
     sel.innerHTML = '<option value="">— Escolha o professor a alocar —</option>' +
       window._state.professors.map(p =>
@@ -260,16 +274,18 @@ function _callWhenReady(fnName, args, attempt) {
   }
 
   function renderScannerPanel() {
-    const { user, isAdmin, currentProf } = window._state;
+    const { user, isAdmin, isCoordenador, currentProf } = window._state;
     const noLogin  = document.getElementById('scanner-no-login');
     const notProf  = document.getElementById('scanner-not-prof');
     const profPanel = document.getElementById('scanner-prof-panel');
+
+    const hasAccess = isAdmin || isCoordenador;
 
     if (!user) {
       noLogin.style.display = 'block';
       notProf.style.display = 'none';
       profPanel.style.display = 'none';
-    } else if (!isAdmin && !currentProf) {
+    } else if (!hasAccess && !currentProf) {
       noLogin.style.display = 'none';
       notProf.style.display = 'block';
       profPanel.style.display = 'none';
@@ -456,7 +472,7 @@ function _callWhenReady(fnName, args, attempt) {
     }
     renderScannerPanel();
     if (document.getElementById('tab-qrcodes')?.classList.contains('active')) renderQRCodes();
-    applyAdminAccess(window._state.isAdmin);
+    applyAdminAccess(window._state.isAdmin, window._state.isCoordenador);
   }
 
   onSnapshot(profsCol, snap => { window._state.professors = snap.docs.map(d=>({id:d.id,...d.data()})); renderAll(); });
@@ -475,14 +491,14 @@ function _callWhenReady(fnName, args, attempt) {
   initDefaultRooms();
 
   function guardAdmin(msg) {
-    if (!window._state.isAdmin) { window.showToast(msg || 'Apenas administradores','error'); return false; }
+    if (!window._state.isAdmin && !window._state.isCoordenador) { window.showToast(msg || 'Apenas administradores ou coordenadores','error'); return false; }
     return true;
   }
 
   function guardAllocate(profId) {
-    const { isAdmin, currentProf, user } = window._state;
+    const { isAdmin, isCoordenador, currentProf, user } = window._state;
     if (!user) { window.showToast('Faça login para continuar', 'error'); return false; }
-    if (isAdmin) return true;
+    if (isAdmin || isCoordenador) return true;
     if (currentProf && currentProf.id === profId) return true;
     window.showToast('Você só pode se alocar na própria sala', 'error');
     return false;
@@ -930,7 +946,7 @@ function _callWhenReady(fnName, args, attempt) {
     if (_scannerActive) return;
 
     let profId = currentProf ? currentProf.id : null;
-    if (!profId && isAdmin) {
+    if (!profId && (isAdmin || isCoordenador)) {
       profId = document.getElementById('scanner-admin-prof-select')?.value || null;
     }
     if (!profId) {
@@ -1012,6 +1028,8 @@ function _callWhenReady(fnName, args, attempt) {
     --warn-bg: hsl(40, 100%, 96%);
     --info: hsl(188, 86%, 33%);
     --info-bg: hsl(185, 96%, 95%);
+    --coordenador: hsl(271, 81%, 38%);
+    --coordenador-bg: hsl(271, 91%, 96%);
     --radius: 16px;
     --radius-sm: 10px;
     --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03), 0 0 0 1px rgba(0, 0, 0, 0.02);
@@ -1039,6 +1057,8 @@ function _callWhenReady(fnName, args, attempt) {
     --warn-bg: hsl(38, 92%, 12%);
     --info: hsl(188, 86%, 53%);
     --info-bg: hsl(188, 86%, 10%);
+    --coordenador: hsl(271, 84%, 67%);
+    --coordenador-bg: hsl(271, 84%, 12%);
     --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -1px rgba(0, 0, 0, 0.1), 0 0 0 1px rgba(255, 255, 255, 0.05);
   }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1074,6 +1094,7 @@ function _callWhenReady(fnName, args, attempt) {
   .user-avatar { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; border: 2px solid var(--border); }
   .user-name { font-weight: 600; color: var(--text); }
   .badge-admin { background: var(--warn-bg); color: var(--warn); font-size: .72rem; font-weight: 700; padding: .2rem .6rem; border-radius: 999px; border: 1px solid rgba(217, 119, 6, 0.2); }
+  .badge-coordenador { background: var(--coordenador-bg); color: var(--coordenador); font-size: .72rem; font-weight: 700; padding: .2rem .6rem; border-radius: 999px; border: 1px solid rgba(147, 51, 234, 0.2); }
   .badge-prof  { background: var(--info-bg); color: var(--info); font-size: .72rem; font-weight: 700; padding: .2rem .6rem; border-radius: 999px; border: 1px solid rgba(8, 145, 178, 0.2); }
   .badge-visitor { background: var(--border); color: var(--muted); font-size: .72rem; font-weight: 700; padding: .2rem .6rem; border-radius: 999px; }
 

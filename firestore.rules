@@ -12,6 +12,12 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/admins/$(request.auth.token.email.lower())) &&
         get(/databases/$(database)/documents/admins/$(request.auth.token.email.lower())).data.ativo == true;
     }
+
+    function isCoordenador() {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/coordenador/$(request.auth.token.email.lower())) &&
+        get(/databases/$(database)/documents/coordenador/$(request.auth.token.email.lower())).data.ativo == true;
+    }
     // ────────────────────────────────────────────────────────────────────
 
     // ── admins ───────────────────────────────────────────────────────────
@@ -22,15 +28,23 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // ── coordenadores ───────────────────────────────────────────────────
+    // Qualquer usuário autenticado pode verificar se é coordenador
+    // Apenas admins podem gerenciar coordenadores
+    match /coordenador/{email} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
     // ── professores ──────────────────────────────────────────────────────
     // Leitura pública: alunos podem ver o painel sem login
-    // Criação/exclusão: somente admin
-    // Atualização: admin tem acesso total;
+    // Criação/exclusão: admin ou coordenador
+    // Atualização: admin/coordenador tem acesso total;
     //   professor autenticado só pode atualizar seu próprio campo updatedAt
     match /professores/{profId} {
       allow read: if true;
-      allow create, delete: if isAdmin();
-      allow update: if isAdmin() ||
+      allow create, delete: if isAdmin() || isCoordenador();
+      allow update: if isAdmin() || isCoordenador() ||
         (isAuthenticated() &&
          request.auth.token.email.lower() == resource.data.email.lower() &&
          request.resource.data.diff(resource.data).affectedKeys()
@@ -39,15 +53,15 @@ service cloud.firestore {
 
     // ── salas ────────────────────────────────────────────────────────────
     // Leitura pública: alunos podem ver onde os professores estão
-    // Criação/exclusão: somente admin
-    // Atualização: admin tem acesso total;
+    // Criação/exclusão: admin ou coordenador
+    // Atualização: admin/coordenador tem acesso total;
     //   professor autenticado só pode alterar o campo profId para seu próprio
     //   ID (alocação) ou null (saída). O ID do professor é verificado buscando
     //   o documento em /professores/{profId} e comparando o campo email.
     match /salas/{salaId} {
       allow read: if true;
-      allow create, delete: if isAdmin();
-      allow update: if isAdmin() ||
+      allow create, delete: if isAdmin() || isCoordenador();
+      allow update: if isAdmin() || isCoordenador() ||
         (isAuthenticated() &&
          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['profId']) &&
          (
@@ -70,11 +84,11 @@ service cloud.firestore {
     }
 
     // ── historico ────────────────────────────────────────────────────────
-    // Leitura: somente admin
+    // Leitura: admin ou coordenador
     // Criação: qualquer usuário autenticado, com campos obrigatórios validados
     // Atualização/exclusão: ninguém — log é imutável
     match /historico/{logId} {
-      allow read: if isAdmin();
+      allow read: if isAdmin() || isCoordenador();
       allow create: if isAuthenticated() &&
         request.resource.data.keys().hasAll(['profId','profNome','salaId','salaNome','acao','ts']) &&
         request.resource.data.acao in ['entrada', 'saida'] &&
