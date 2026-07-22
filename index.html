@@ -33,7 +33,7 @@ function _callWhenReady(fnName, args, attempt) {
 ['selfDeallocate','deallocateProf','removeProfessor','deleteRoom',
  'downloadQR','startScanner','stopScanner','addProfessor','addSala',
  'manualAllocate','manualDeallocate','deallocateAllProfs','printAllQR',
- 'showToast','showConfirmModal','renderQRCodes'
+ 'showToast','showConfirmModal','renderQRCodes','addCoordenador','removeCoordenador'
 ].forEach(function(name) {
   window[name] = function() {
     var args = Array.prototype.slice.call(arguments);
@@ -74,7 +74,7 @@ function _callWhenReady(fnName, args, attempt) {
   const roomsCol = collection(db, "salas");
   const logCol   = collection(db, "historico");
 
-  window._state = { professors: [], rooms: [], isAdmin: false, isCoordenador: false, user: null, currentProf: null, searchQuery: '' };
+  window._state = { professors: [], rooms: [], coordenadores: [], isAdmin: false, isCoordenador: false, user: null, currentProf: null, searchQuery: '' };
 
   function uuidv4() {
     return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
@@ -254,6 +254,7 @@ function _callWhenReady(fnName, args, attempt) {
     const hasAccess = isAdmin || isCoordenador;
     document.querySelectorAll('.admin-only').forEach(el => el.style.display = hasAccess ? '' : 'none');
     document.querySelectorAll('.admin-tab').forEach(el => el.style.display = hasAccess ? '' : 'none');
+    document.querySelectorAll('.super-admin-only').forEach(el => el.style.display = isAdmin ? '' : 'none');
   }
 
   // ── Atualiza o select de professor na aba scanner (visível só para admin) ──
@@ -383,6 +384,24 @@ function _callWhenReady(fnName, args, attempt) {
     }).join('');
   }
 
+  function renderCoordenadores() {
+    const c = document.getElementById('coordenadores-list');
+    if (!c) return;
+    const coords = window._state.coordenadores;
+    if (!coords.length) { c.innerHTML = `<div class="empty-state" style="padding:2rem 1rem"><h3>Nenhum coordenador cadastrado</h3></div>`; return; }
+    c.innerHTML = coords.map(p => {
+      return `<div class="prof-manage-card">
+        <div class="prof-avatar" style="background:${window.avatarColor(p.email)}">${escapeHTML(window.initials(p.email.split('@')[0]))}</div>
+        <div class="prof-info">
+          <div class="prof-email">${escapeHTML(p.email)}</div>
+        </div>
+        <div class="prof-manage-actions">
+          <button class="btn btn-danger btn-sm" onclick="window.removeCoordenador('${escapeHTML(p.email)}')">Revogar acesso</button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
   function renderRooms() {
     const c = document.getElementById('rooms-list');
     const rooms = window._state.rooms;
@@ -466,7 +485,7 @@ function _callWhenReady(fnName, args, attempt) {
   }
 
   function renderAll() {
-    renderPainel(); renderProfManage(); renderRooms(); updateSelects();
+    renderPainel(); renderProfManage(); renderRooms(); renderCoordenadores(); updateSelects();
     if (window._state.user) {
       window._state.currentProf = findProfByEmail(window._state.user.email);
     }
@@ -477,6 +496,7 @@ function _callWhenReady(fnName, args, attempt) {
 
   onSnapshot(profsCol, snap => { window._state.professors = snap.docs.map(d=>({id:d.id,...d.data()})); renderAll(); });
   onSnapshot(roomsCol, snap => { window._state.rooms = snap.docs.map(d=>({id:d.id,...d.data()})); renderAll(); });
+  onSnapshot(collection(db, 'coordenador'), snap => { window._state.coordenadores = snap.docs.map(d=>({email:d.id,...d.data()})); renderAll(); });
 
   async function initDefaultRooms() {
     const snap = await getDocs(roomsCol);
@@ -557,6 +577,45 @@ function _callWhenReady(fnName, args, attempt) {
     await _doAllocateNow(profId, room, prof);
   }
   // ──────────────────────────────────────────────────────────────────────────
+
+  window._fn_addCoordenador = async (e) => {
+    if (!window._state.isAdmin) { window.showToast('Apenas o administrador original pode cadastrar coordenadores', 'error'); return; }
+    const email = document.getElementById('coordenador-email').value.trim().toLowerCase();
+    if (!email) { window.showToast('Preencha o e-mail do coordenador', 'error'); return; }
+    
+    const btn = e.target;
+    const oldText = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner"></span> Cadastrando...';
+    btn.disabled = true;
+    
+    try {
+      await setDoc(doc(db, 'coordenador', email), {
+        ativo: true,
+        createdAt: serverTimestamp()
+      });
+      document.getElementById('coordenador-email').value = '';
+      window.showToast('Coordenador cadastrado com sucesso!', 'success');
+    } catch (err) {
+      console.error(err);
+      window.showToast('Erro ao cadastrar coordenador', 'error');
+    } finally {
+      btn.innerHTML = oldText;
+      btn.disabled = false;
+    }
+  };
+
+  window._fn_removeCoordenador = async (email) => {
+    if (!window._state.isAdmin) { window.showToast('Apenas o administrador original pode remover coordenadores', 'error'); return; }
+    window.showConfirmModal(`Deseja revogar o acesso do coordenador <strong>${escapeHTML(email)}</strong>?`, async () => {
+      try {
+        await deleteDoc(doc(db, 'coordenador', email));
+        window.showToast('Acesso revogado', 'success');
+      } catch (err) {
+        console.error(err);
+        window.showToast('Erro ao remover', 'error');
+      }
+    });
+  };
 
   window._fn_addProfessor = async () => {
     if (!guardAdmin('Apenas admins podem cadastrar professores')) return;
@@ -1601,6 +1660,16 @@ function _callWhenReady(fnName, args, attempt) {
         </div>
       </div>
 
+      <!-- Cadastro coordenador -->
+      <div class="card super-admin-only">
+        <div class="card-title">👑 Cadastrar coordenador</div>
+        <div class="form-group">
+          <label class="form-label">E-mail Google</label>
+          <input class="form-input" id="coordenador-email" type="email" placeholder="coordenador@gmail.com" autocomplete="off">
+        </div>
+        <button class="btn btn-primary" onclick="window.addCoordenador(event)">Conceder acesso</button>
+      </div>
+
     </div>
 
     <!-- Lista professores -->
@@ -1616,6 +1685,14 @@ function _callWhenReady(fnName, args, attempt) {
         </button>
       </div>
       <div id="prof-list-manage"></div>
+    </div>
+
+    <!-- Lista coordenadores -->
+    <div style="margin-top:1.5rem" class="super-admin-only">
+      <div class="section-header">
+        <span class="section-title">👑 Coordenadores cadastrados</span>
+      </div>
+      <div id="coordenadores-list"></div>
     </div>
 
     <!-- Lista salas -->
