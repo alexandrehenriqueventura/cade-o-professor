@@ -96,13 +96,51 @@ cade-o-professor/
 └── .gitignore           # Arquivos ignorados pelo git
 ```
 
-## 🚀 Como Usar
+## 💻 Como Testar Localmente
 
-### Acesso Online
+Como a aplicação é uma Single Page Application (SPA) baseada em HTML, CSS e JavaScript puro com Firebase, você pode executá-la facilmente em um servidor local.
 
-O projeto está disponível em: [https://cade-o-professor.web.app/](https://cade-o-professor.web.app/)
+### 1. Clonar o Repositório
 
-> Qualquer dispositivo com navegador moderno e câmera consegue utilizar o app.
+```bash
+git clone https://github.com/alexandrehenriqueventura/cade-o-professor.git
+cd cade-o-professor
+```
+
+### 2. Iniciar um Servidor Local
+
+Escolha uma das opções abaixo para servir os arquivos estáticos:
+
+#### Opção A: Firebase CLI (Recomendado)
+Se você já possui o Firebase CLI instalado:
+```bash
+# Vincule ao seu projeto (caso ainda não esteja vinculado)
+firebase use <id-do-seu-projeto>
+
+# Inicie o servidor de testes
+firebase serve --only hosting
+```
+O servidor estará disponível em: `http://localhost:5000`
+
+#### Opção B: Python
+Caso tenha o Python 3 instalado:
+```bash
+python3 -m http.server 5000
+```
+Acesse no navegador: `http://localhost:5000`
+
+#### Opção C: Extensão Live Server (VS Code)
+1. Abra a pasta do projeto no **Visual Studio Code**.
+2. Instale a extensão **Live Server** (de Ritwick Dey).
+3. Clique com o botão direito sobre o arquivo `index.html` e selecione **"Open with Live Server"** (ou clique em **"Go Live"** na barra inferior).
+
+---
+
+> [!TIP]
+> **Dicas para Testes Locais:**
+> - Sempre acesse via `http://localhost:5000` em vez de `http://127.0.0.1:5000`, pois o Firebase Authentication e as APIs de câmera do navegador reconhecem `localhost` como um contexto seguro.
+> - Certifique-se de que `localhost` está listado em **Authentication > Settings > Authorized domains** no Console do Firebase.
+> - Para testar o leitor de QR Code, permita o acesso à câmera quando o navegador solicitar.
 
 ## 📄 Licença
 
