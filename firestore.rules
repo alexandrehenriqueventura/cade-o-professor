@@ -91,12 +91,13 @@ service cloud.firestore {
 
     // ── historico ────────────────────────────────────────────────────────
     // Leitura: admin ou coordenador
-    // Criação: qualquer usuário autenticado, com campos obrigatórios validados
+    // Criação: qualquer usuário autenticado, com campos obrigatórios validados e carimbo do servidor
     // Atualização/exclusão: ninguém — log é imutável
     match /historico/{logId} {
       allow read: if isAdmin() || isCoordenador();
       allow create: if isAuthenticated() &&
         request.resource.data.keys().hasAll(['profId','profNome','salaId','salaNome','acao','ts']) &&
+        request.resource.data.ts == request.time &&
         request.resource.data.acao in ['entrada', 'saida'] &&
         (
           isAdmin() ||
