@@ -122,6 +122,30 @@ function _callWhenReady(fnName, args, attempt) {
     return window._state.professors.find(p => p.email && p.email.toLowerCase() === email.toLowerCase()) || null;
   }
 
+  // ── Sanitiza corpo do modal (permite apenas <strong>, <br>, <small>) ──
+  function sanitizeModalBody(body) {
+    const allowed = ['strong', 'br', 'small'];
+    const doc = new DOMParser().parseFromString('<div>' + String(body) + '</div>', 'text/html');
+    const walk = (node) => {
+      for (let i = node.childNodes.length - 1; i >= 0; i--) {
+        const child = node.childNodes[i];
+        if (child.nodeType === 1) {
+          const tag = child.tagName.toLowerCase();
+          if (!allowed.includes(tag)) {
+            child.replaceWith(...Array.from(child.childNodes));
+          } else {
+            for (let j = child.attributes.length - 1; j >= 0; j--) {
+              if (/^on\w+/i.test(child.attributes[j].name)) child.removeAttribute(child.attributes[j].name);
+            }
+            walk(child);
+          }
+        }
+      }
+    };
+    walk(doc.body);
+    return doc.body.innerHTML;
+  }
+
   // ── Modal de confirmação genérico ──────────────────────────────────────────
   function showConfirmModal({ icon = '🗑️', iconType = 'danger', title, body, confirmLabel = 'Confirmar', cancelLabel = 'Cancelar', onConfirm, onCancel }) {
     const modal = document.getElementById('confirm-modal');
@@ -134,10 +158,8 @@ function _callWhenReady(fnName, args, attempt) {
     iconEl.textContent = icon;
     iconEl.className = 'modal-icon modal-icon-' + iconType;
     titleEl.textContent = title;
-    // Sanitiza HTML simples: permite apenas <strong>, <br> e <small>, removendo manipuladores de eventos
-    let cleanBody = body.replace(/<(?!(\/?strong|br|\/?small)[\s>])[^>]*>/gi, '');
-    cleanBody = cleanBody.replace(/\son\w+\s*=\s*(['"].*?['"]|[^'\s>]+(?=\s|>))/gi, '');
-    bodyEl.innerHTML = cleanBody;
+    // Sanitiza HTML simples via DOM: permite apenas <strong>, <br> e <small>, removendo tags não permitidas e manipuladores de eventos
+    bodyEl.innerHTML = sanitizeModalBody(body);
     btnConfirm.textContent = confirmLabel;
     btnCancel.textContent = cancelLabel;
 

@@ -21,18 +21,20 @@ service cloud.firestore {
     // ────────────────────────────────────────────────────────────────────
 
     // ── admins ───────────────────────────────────────────────────────────
-    // Qualquer usuário autenticado pode verificar se é admin
+    // Leitura: próprio documento, admin ou coordenador (evita enumeração de e-mails)
     // Apenas admins podem criar/alterar/excluir outros admins
     match /admins/{email} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() &&
+        (email == request.auth.token.email.lower() || isAdmin() || isCoordenador());
       allow write: if isAdmin();
     }
 
     // ── coordenadores ───────────────────────────────────────────────────
-    // Qualquer usuário autenticado pode verificar se é coordenador
+    // Leitura: próprio documento, admin ou coordenador
     // Apenas admins podem gerenciar coordenadores
     match /coordenador/{email} {
-      allow read: if isAuthenticated();
+      allow read: if isAuthenticated() &&
+        (email == request.auth.token.email.lower() || isAdmin() || isCoordenador());
       allow write: if isAdmin();
     }
 
@@ -56,8 +58,8 @@ service cloud.firestore {
     // Criação/exclusão: admin ou coordenador
     // Atualização: admin/coordenador tem acesso total;
     //   professor autenticado só pode alterar o campo profId para seu próprio
-    //   ID (alocação) ou null (saída). O ID do professor é verificado buscando
-    //   o documento em /professores/{profId} e comparando o campo email.
+    //   ID (alocação) ou null (saída). A sala só pode ser preenchida se estiver livre,
+    //   impedindo sobrescrever a alocação de outro professor.
     match /salas/{salaId} {
       allow read: if true;
       allow create, delete: if isAdmin() || isCoordenador();
@@ -72,10 +74,10 @@ service cloud.firestore {
              exists(/databases/$(database)/documents/professores/$(resource.data.profId)) &&
              get(/databases/$(database)/documents/professores/$(resource.data.profId)).data.email.lower() == request.auth.token.email.lower()
            ) ||
-           // Professor entrando: verifica se o profId referencia o documento
-           // cujo campo email corresponde ao usuário autenticado
+           // Professor entrando: só se a sala estiver livre E o profId for o próprio
            (
              request.resource.data.profId is string &&
+             resource.data.profId == null &&
              exists(/databases/$(database)/documents/professores/$(request.resource.data.profId)) &&
              get(/databases/$(database)/documents/professores/$(request.resource.data.profId)).data.email.lower() == request.auth.token.email.lower()
            )
