@@ -21,20 +21,24 @@ service cloud.firestore {
     // ────────────────────────────────────────────────────────────────────
 
     // ── admins ───────────────────────────────────────────────────────────
-    // Leitura: próprio documento, admin ou coordenador (evita enumeração de e-mails)
-    // Apenas admins podem criar/alterar/excluir outros admins
+    // Leitura individual (get): próprio documento pelo email ou admin
+    // Listagem da coleção (list): apenas admins
+    // Escrita: apenas admins
     match /admins/{email} {
-      allow read: if isAuthenticated() &&
-        (email == request.auth.token.email.lower() || isAdmin() || isCoordenador());
+      allow get: if isAuthenticated() &&
+        (email == request.auth.token.email.lower() || isAdmin());
+      allow list: if isAdmin();
       allow write: if isAdmin();
     }
 
     // ── coordenadores ───────────────────────────────────────────────────
-    // Leitura: próprio documento, admin ou coordenador
-    // Apenas admins podem gerenciar coordenadores
+    // Leitura individual (get): próprio documento pelo email, admin ou coordenador
+    // Listagem da coleção (list): apenas admins
+    // Escrita: apenas admins
     match /coordenador/{email} {
-      allow read: if isAuthenticated() &&
+      allow get: if isAuthenticated() &&
         (email == request.auth.token.email.lower() || isAdmin() || isCoordenador());
+      allow list: if isAdmin();
       allow write: if isAdmin();
     }
 

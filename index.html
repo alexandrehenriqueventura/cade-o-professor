@@ -124,25 +124,23 @@ function _callWhenReady(fnName, args, attempt) {
 
   // ── Sanitiza corpo do modal (permite apenas <strong>, <br>, <small>) ──
   function sanitizeModalBody(body) {
-    const allowed = ['strong', 'br', 'small'];
-    const doc = new DOMParser().parseFromString('<div>' + String(body) + '</div>', 'text/html');
-    const walk = (node) => {
-      for (let i = node.childNodes.length - 1; i >= 0; i--) {
-        const child = node.childNodes[i];
-        if (child.nodeType === 1) {
-          const tag = child.tagName.toLowerCase();
-          if (!allowed.includes(tag)) {
-            child.replaceWith(...Array.from(child.childNodes));
-          } else {
-            for (let j = child.attributes.length - 1; j >= 0; j--) {
-              if (/^on\w+/i.test(child.attributes[j].name)) child.removeAttribute(child.attributes[j].name);
-            }
-            walk(child);
-          }
+    if (!body) return '';
+    const allowedTags = new Set(['STRONG', 'BR', 'SMALL']);
+    const doc = new DOMParser().parseFromString('<body>' + String(body) + '</body>', 'text/html');
+    const elements = doc.body.querySelectorAll('*');
+    for (const el of elements) {
+      if (!allowedTags.has(el.tagName)) {
+        if (['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED'].includes(el.tagName)) {
+          el.remove();
+        } else {
+          el.replaceWith(...Array.from(el.childNodes));
+        }
+      } else {
+        while (el.attributes.length > 0) {
+          el.removeAttribute(el.attributes[0].name);
         }
       }
-    };
-    walk(doc.body);
+    }
     return doc.body.innerHTML;
   }
 
@@ -208,6 +206,8 @@ function _callWhenReady(fnName, args, attempt) {
       }
     });
 
+  let unsubCoordenador = null;
+
   onAuthStateChanged(auth, async (user) => {
     if (user) {
       const isAdmin = await checkAdmin(user.email);
@@ -220,6 +220,16 @@ function _callWhenReady(fnName, args, attempt) {
       updateAuthUI(user, isAdmin, isCoordenador, currentProf);
       applyAdminAccess(isAdmin, isCoordenador);
       renderScannerPanel();
+
+      if (isAdmin && !unsubCoordenador) {
+        unsubCoordenador = onSnapshot(collection(db, 'coordenador'), snap => {
+          window._state.coordenadores = snap.docs.map(d => ({ email: d.id, ...d.data() }));
+          renderCoordenadores();
+        }, err => {
+          console.warn('Erro ao carregar coordenadores:', err);
+        });
+      }
+
       if (isAdmin) {
         window.showToast('✅ Bem-vindo, Administrador!', 'success');
       } else if (isCoordenador) {
@@ -230,13 +240,19 @@ function _callWhenReady(fnName, args, attempt) {
         window.showToast('⚠️ Seu e-mail não está cadastrado como professor.', 'error');
       }
     } else {
+      if (unsubCoordenador) {
+        unsubCoordenador();
+        unsubCoordenador = null;
+      }
       window._state.user = null;
       window._state.isAdmin = false;
       window._state.isCoordenador = false;
       window._state.currentProf = null;
+      window._state.coordenadores = [];
       updateAuthUI(null, false, false, null);
       applyAdminAccess(false, false);
       renderScannerPanel();
+      renderCoordenadores();
     }
   });
 
@@ -518,7 +534,6 @@ function _callWhenReady(fnName, args, attempt) {
 
   onSnapshot(profsCol, snap => { window._state.professors = snap.docs.map(d=>({id:d.id,...d.data()})); renderAll(); });
   onSnapshot(roomsCol, snap => { window._state.rooms = snap.docs.map(d=>({id:d.id,...d.data()})); renderAll(); });
-  onSnapshot(collection(db, 'coordenador'), snap => { window._state.coordenadores = snap.docs.map(d=>({email:d.id,...d.data()})); renderAll(); });
 
   async function initDefaultRooms() {
     const snap = await getDocs(roomsCol);
@@ -628,13 +643,21 @@ function _callWhenReady(fnName, args, attempt) {
 
   window._fn_removeCoordenador = async (email) => {
     if (!window._state.isAdmin) { window.showToast('Apenas o administrador original pode remover coordenadores', 'error'); return; }
-    window.showConfirmModal(`Deseja revogar o acesso do coordenador <strong>${escapeHTML(email)}</strong>?`, async () => {
-      try {
-        await deleteDoc(doc(db, 'coordenador', email));
-        window.showToast('Acesso revogado', 'success');
-      } catch (err) {
-        console.error(err);
-        window.showToast('Erro ao remover', 'error');
+    showConfirmModal({
+      icon: '🗑️',
+      iconType: 'danger',
+      title: 'Revogar coordenador?',
+      body: `Deseja revogar o acesso do coordenador <strong>${escapeHTML(email)}</strong>?`,
+      confirmLabel: 'Sim, revogar',
+      cancelLabel: 'Cancelar',
+      onConfirm: async () => {
+        try {
+          await deleteDoc(doc(db, 'coordenador', email));
+          window.showToast('Acesso revogado', 'success');
+        } catch (err) {
+          console.error(err);
+          window.showToast('Erro ao remover', 'error');
+        }
       }
     });
   };
